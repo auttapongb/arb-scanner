@@ -15,15 +15,15 @@ LIVE_MODE = False  # Set True for real orders
 
 # --- Strategy config ---
 CAPITAL = 150.0          # Total capital (adjustable, $100-200 works)
-MAX_POSITIONS = 4        # Positions to spread across
-POSITION_SIZE = CAPITAL / MAX_POSITIONS  # ~$37 each
+MAX_POSITIONS = 3        # Fewer but bigger positions ($50 each @ $150 capital)
+POSITION_SIZE = CAPITAL / MAX_POSITIONS  # ~$50 each
 
-MIN_FUNDING_RATE_PCT = 0.15   # Was 0.05 — tighter to avoid fee bleed on near-zero rates
+MIN_FUNDING_RATE_PCT = 0.20   # Only enter rates >= 0.20% — filters out 90% of false signals
 EXIT_FUNDING_RATE_PCT = 0.01
-STOP_LOSS_PRICE_PCT = 3.0     # Was 2.0 — give positions more room to survive volatility
-MIN_HOLD_HOURS = 4
+STOP_LOSS_PRICE_PCT = 100.0   # DISABLED — funding bot is delta-neutral, price doesn't matter for funding collection
+MIN_HOLD_HOURS = 6             # Wait for at least one settlement window
 MAX_HOLD_HOURS = 24
-RE_ENTRY_COOLDOWN_MINUTES = 120  # Was 60 — longer cooldown to avoid re-entering dead symbols
+RE_ENTRY_COOLDOWN_MINUTES = 120
 LIMIT_FEE_RATE = 0.0002
 FEE_RATE = 0.001
 TRADE_LOG = os.path.join(BASE_DIR, "funding_trades.json")
@@ -325,7 +325,9 @@ class FundingBot:
             print(f"    {c['symbol']:18s} {c['rate']:.4f}% (pred={c.get('predicted',0):.4f}%)")
         print(f"  (filtered {filtered_predicted} predicted-negative, {filtered_cooldown} cooldown)")
         entered = 0
-        for best in candidates[:slots]:
+        # Deduplicate: skip symbols already in active positions
+        candidate_pool = [c for c in candidates if c['symbol'] not in self.active]
+        for best in candidate_pool[:slots]:
             sym, fr, pr = best["symbol"], best["rate"], best["price"]
             qty = _round_qty(POSITION_SIZE / pr, sym)
             val = qty * pr

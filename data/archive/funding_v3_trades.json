@@ -1,0 +1,152 @@
+[
+  {
+    "type": "ENTRY",
+    "symbol": "1000BTTUSDT",
+    "ts": "2026-05-07T19:51:22.893962+00:00",
+    "entry_price": 0.0003271,
+    "entry_rate": 0.303074,
+    "value": 100.0,
+    "qty": 305716.9061,
+    "entry_fee": 0.02,
+    "total_collected": 0.8892073333333333,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00"
+  },
+  {
+    "type": "FUNDING",
+    "symbol": "1000BTTUSDT",
+    "ts": "2026-05-08T00:00:00+00:00",
+    "rate": 0.3031,
+    "gross": 0.3031,
+    "fee": 0.0067,
+    "net_payment": 0.2964
+  },
+  {
+    "type": "FUNDING",
+    "symbol": "1000BTTUSDT",
+    "ts": "2026-05-08T08:00:00+00:00",
+    "rate": 0.3031,
+    "gross": 0.3031,
+    "fee": 0.0067,
+    "net_payment": 0.2964
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "RAVEUSDT",
+    "ts": "2026-05-08T11:42:50.694732+00:00",
+    "entry_price": 0.68368,
+    "entry_rate": 0.22066,
+    "value": 33.33,
+    "qty": 48.7558,
+    "entry_fee": 0.0067,
+    "total_collected": 0,
+    "last_pay_ts": "2026-05-08T08:00:00+00:00"
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "ORCLUSDT",
+    "ts": "2026-05-08T11:42:50.694916+00:00",
+    "entry_price": 192.6,
+    "entry_rate": 0.146944,
+    "value": 33.34,
+    "qty": 0.1731,
+    "entry_fee": 0.0067,
+    "total_collected": 0,
+    "last_pay_ts": "2026-05-08T08:00:00+00:00"
+  },
+  {
+    "type": "EXIT",
+    "symbol": "RAVEUSDT",
+    "ts": "2026-05-08T12:00:44.879378+00:00",
+    "entry_price": 0.68368,
+    "exit_price": 0.68489,
+    "funding_collected": 0,
+    "price_pnl": -0.06,
+    "pnl_usdt": -0.1,
+    "reason": "funding drop 0.0013%"
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "VELOUSDT",
+    "ts": "2026-05-08T12:00:45.370321+00:00",
+    "entry_price": 0.00332,
+    "entry_rate": 0.08015900000000001,
+    "value": 33.33,
+    "qty": 10040.1606,
+    "entry_fee": 0.0067,
+    "total_collected": 0,
+    "last_pay_ts": "2026-05-08T08:00:00+00:00"
+  },
+  {
+    "type": "EXIT",
+    "symbol": "VELOUSDT",
+    "ts": "2026-05-08T14:46:38.687286+00:00",
+    "entry_price": 0.00332,
+    "exit_price": 0.003406,
+    "funding_collected": 0,
+    "price_pnl": -0.86,
+    "pnl_usdt": -0.9,
+    "reason": "stop +2.59%"
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "ASPUSDT",
+    "ts": "2026-05-08T14:46:40.200543+00:00",
+    "entry_price": 0.02658,
+    "entry_rate": 0.13376200000000002,
+    "value": 33.33,
+    "qty": 1254.0757,
+    "entry_fee": 0.0067,
+    "total_collected": 0.04236087460000001,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00"
+  },
+  {
+    "type": "EXIT",
+    "symbol": "ORCLUSDT",
+    "ts": "2026-05-08T15:15:46.502072+00:00",
+    "entry_price": 192.6,
+    "exit_price": 197.8,
+    "funding_collected": 0,
+    "price_pnl": -0.9,
+    "pnl_usdt": -0.94,
+    "reason": "stop +2.70%"
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "1000TAGUSDT",
+    "ts": "2026-05-08T15:15:47.454577+00:00",
+    "entry_price": 1.4013,
+    "entry_rate": 0.155163,
+    "value": 33.33,
+    "qty": 23.7874,
+    "entry_fee": 0.0067,
+    "total_collected": 0.049493827899999995,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00"
+  },
+  {
+    "type": "FUNDING",
+    "symbol": "1000BTTUSDT",
+    "ts": "2026-05-08T16:00:00+00:00",
+    "rate": 0.3031,
+    "gross": 0.3031,
+    "fee": 0.0067,
+    "net_payment": 0.2964
+  },
+  {
+    "type": "FUNDING",
+    "symbol": "ASPUSDT",
+    "ts": "2026-05-08T16:00:00+00:00",
+    "rate": 0.1338,
+    "gross": 0.0446,
+    "fee": 0.0022,
+    "net_payment": 0.0424
+  },
+  {
+    "type": "FUNDING",
+    "symbol": "1000TAGUSDT",
+    "ts": "2026-05-08T16:00:00+00:00",
+    "rate": 0.1552,
+    "gross": 0.0517,
+    "fee": 0.0022,
+    "net_payment": 0.0495
+  }
+]
