@@ -9,7 +9,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00",
+    "total_collected": -0.0075
   },
   {
     "type": "ENTRY",
@@ -103,7 +105,9 @@
     "value_usdt": 19.99,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-07T16:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "ENTRY",
@@ -115,7 +119,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-07T16:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "EXIT",
@@ -323,7 +329,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T08:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "EXIT",
@@ -353,5 +361,187 @@
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
     "last_funding_payment_ts": null
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "SPORTFUNUSDT",
+    "ts": "2026-05-08T16:30:45.833528+00:00",
+    "entry_price": 0.08548,
+    "entry_funding_rate": 0.411746,
+    "qty": 233.9729,
+    "value_usdt": 20.0,
+    "entry_fee": 0.004,
+    "total_funding_collected": 0.0,
+    "last_funding_payment_ts": null
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "SPORTFUNUSDT",
+    "ts": "2026-05-08T16:45:52.959758+00:00",
+    "entry_price": 0.08841,
+    "entry_funding_rate": 0.396434,
+    "qty": 226.2188,
+    "value_usdt": 20.0,
+    "entry_fee": 0.004,
+    "total_funding_collected": 0.0,
+    "last_funding_payment_ts": null
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "SPORTFUNUSDT",
+    "ts": "2026-05-08T16:54:04.318087+00:00",
+    "entry_price": 0.08919,
+    "entry_funding_rate": 0.33163,
+    "qty": 224.2404,
+    "value_usdt": 20.0,
+    "entry_fee": 0.004,
+    "total_funding_collected": 0.0,
+    "last_funding_payment_ts": null
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "SPORTFUNUSDT",
+    "ts": "2026-05-08T17:00:24.736781+00:00",
+    "entry_price": 0.08759,
+    "entry_funding_rate": 0.256687,
+    "qty": 228.3366,
+    "value_usdt": 20.0,
+    "entry_fee": 0.004,
+    "total_funding_collected": 0.0,
+    "last_funding_payment_ts": null
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "SPORTFUNUSDT",
+    "ts": "2026-05-08T17:10:04.790879+00:00",
+    "entry_price": 0.09004,
+    "entry_funding_rate": 0.182657,
+    "qty": 222.1235,
+    "value_usdt": 20.0,
+    "entry_fee": 0.004,
+    "total_funding_collected": 0.0,
+    "last_funding_payment_ts": null
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "SPORTFUNUSDT",
+    "ts": "2026-05-08T17:12:29.066424+00:00",
+    "entry_price": 0.08945,
+    "entry_funding_rate": 0.169997,
+    "qty": 223.5886,
+    "value_usdt": 20.0,
+    "entry_fee": 0.004,
+    "total_funding_collected": 0.0,
+    "last_funding_payment_ts": null
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "SPORTFUNUSDT",
+    "ts": "2026-05-08T17:15:44.705557+00:00",
+    "entry_price": 0.08772,
+    "entry_funding_rate": 0.152861,
+    "qty": 227.9982,
+    "value_usdt": 20.0,
+    "entry_fee": 0.004,
+    "total_funding_collected": 0.0,
+    "last_funding_payment_ts": null
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "REQUSDT",
+    "ts": "2026-05-08T17:28:53.461088+00:00",
+    "entry_price": 0.073,
+    "entry_funding_rate": 0.15783,
+    "qty": 273.9726,
+    "value_usdt": 20.0,
+    "entry_fee": 0.004,
+    "total_funding_collected": 0.0,
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00",
+    "total_collected": 0
+  },
+  {
+    "type": "EXIT",
+    "symbol": "GOOGLUSDT",
+    "ts": "2026-05-08T18:58:36.264639+00:00",
+    "entry_price": 398.15,
+    "exit_price": 399.49,
+    "funding_collected": 0,
+    "price_pnl": -0.13,
+    "pnl_usdt": -0.17,
+    "reason": "funding drop 0.0096%"
+  },
+  {
+    "type": "EXIT",
+    "symbol": "FLOWUSDT",
+    "ts": "2026-05-08T18:58:36.264764+00:00",
+    "entry_price": 0.04169,
+    "exit_price": 0.04297,
+    "funding_collected": 0,
+    "price_pnl": -1.15,
+    "pnl_usdt": -1.19,
+    "reason": "stop +3.07%"
+  },
+  {
+    "type": "EXIT",
+    "symbol": "VELOUSDT",
+    "ts": "2026-05-08T18:58:36.264791+00:00",
+    "entry_price": 0.00332,
+    "exit_price": 0.003418,
+    "funding_collected": 0,
+    "price_pnl": -1.11,
+    "pnl_usdt": -1.15,
+    "reason": "stop +2.95%"
+  },
+  {
+    "type": "FUNDING",
+    "symbol": "1000BTTUSDT",
+    "ts": "2026-05-08T00:00:00+00:00",
+    "rate": 0,
+    "gross": 0.0,
+    "fee": 0.0025,
+    "net_payment": -0.0025
+  },
+  {
+    "type": "FUNDING",
+    "symbol": "1000BTTUSDT",
+    "ts": "2026-05-08T08:00:00+00:00",
+    "rate": 0,
+    "gross": 0.0,
+    "fee": 0.0025,
+    "net_payment": -0.0025
+  },
+  {
+    "type": "FUNDING",
+    "symbol": "1000BTTUSDT",
+    "ts": "2026-05-08T16:00:00+00:00",
+    "rate": 0,
+    "gross": 0.0,
+    "fee": 0.0025,
+    "net_payment": -0.0025
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "SPORTFUNUSDT",
+    "ts": "2026-05-08T18:58:50.795921+00:00",
+    "entry_price": 0.08,
+    "entry_rate": 0.281175,
+    "value": 37.5,
+    "qty": 468.75,
+    "entry_fee": 0.0075,
+    "total_collected": 0.0,
+    "last_pay_ts": null
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "BSBUSDT",
+    "ts": "2026-05-08T18:58:51.038590+00:00",
+    "entry_price": 0.5301,
+    "entry_rate": 0.259167,
+    "value": 37.5,
+    "qty": 70.7414,
+    "entry_fee": 0.0075,
+    "total_collected": 0.0,
+    "last_pay_ts": null
   }
 ]
