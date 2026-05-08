@@ -25,16 +25,16 @@ BYBIT_ENV = os.environ.get("BYBIT_ENV", "mainnet")
 PAPER_TRADE = True  # Set to False for real trades
 LIVE_MODE = False   # Set to True for live limit orders (overrides PAPER_TRADE concept)
 POSITION_SIZE_USDT = 100  # Size per leg
-MIN_SPREAD_PCT = 0.5  # Min spot-perpetual spread to enter
+MIN_SPREAD_PCT = 0.3  # Min spot-perpetual spread to enter (0.3%, cautious for tight market)
 MAX_SPREAD_PCT = 5.0  # Sanity cap
-MAX_OPEN_POSITIONS = 3  # Max simultaneous positions
+MAX_OPEN_POSITIONS = 2  # Max simultaneous positions (2 = less risk, easier to manage)
 CHECK_INTERVAL = 5
 # Fee accounting
 FEE_RATE = 0.001  # 0.1% per leg (worst-case taker fee, used for safety in PnL calc)
 LIMIT_FEE_RATE = 0.0002  # 0.02% per leg when using PostOnly limit orders (maker)
 TAKE_PROFIT_CONVERGENCE = 0.15  # Exit when spread narrows to ≤ this
 SYMBOL_COOLDOWN_SECONDS = 3600  # Don't re-enter for 1 hour
-MIN_PROFIT_AFTER_FEES = 0.50  # Minimum net profit after fees
+MIN_PROFIT_AFTER_FEES = 0.30  # Minimum net profit after fees ($0.30, still safe with $0.08 PostOnly fees)
 # Exit strategies
 STOP_LOSS_SPREAD = -0.2  # Exit if spread goes deeply negative (actual loss)
 TAKE_PROFIT_SPREAD_INCREASE = 1.0  # Unused — convergence exit handles this
@@ -516,10 +516,12 @@ class BybitArbitrageEngine:
                 continue
 
             # Exchange position check (live mode only — expensive API calls)
-            if not self.paper_trade:
-                if self._has_open_position_on_exchange(symbol):
-                    print(f"⏭️ {symbol}: position exists on exchange, skipping")
-                    continue
+            # Only check if we need to: when position count suggests we might have missed one
+            if not self.paper_trade and symbol in self.active_positions:
+                # Verify the position actually exists on exchange
+                if not self._has_open_position_on_exchange(symbol):
+                    print(f"⚠️ {symbol}: tracked as active but no exchange position — removing")
+                    del self.active_positions[symbol]
 
             # Check for entry
             pos = self.calculate_position(prices)
