@@ -18,12 +18,12 @@ CAPITAL = 150.0          # Total capital (adjustable, $100-200 works)
 MAX_POSITIONS = 4        # Positions to spread across
 POSITION_SIZE = CAPITAL / MAX_POSITIONS  # ~$37 each
 
-MIN_FUNDING_RATE_PCT = 0.05
+MIN_FUNDING_RATE_PCT = 0.15   # Was 0.05 — tighter to avoid fee bleed on near-zero rates
 EXIT_FUNDING_RATE_PCT = 0.01
-STOP_LOSS_PRICE_PCT = 2.0
+STOP_LOSS_PRICE_PCT = 3.0     # Was 2.0 — give positions more room to survive volatility
 MIN_HOLD_HOURS = 4
 MAX_HOLD_HOURS = 24
-RE_ENTRY_COOLDOWN_MINUTES = 60
+RE_ENTRY_COOLDOWN_MINUTES = 120  # Was 60 — longer cooldown to avoid re-entering dead symbols
 LIMIT_FEE_RATE = 0.0002
 FEE_RATE = 0.001
 TRADE_LOG = os.path.join(BASE_DIR, "funding_trades.json")
@@ -172,8 +172,9 @@ class FundingBot:
     def get_top_symbols(self):
         resp = bybit_get("/v5/market/tickers", {"category": "linear"})
         if resp.get("retCode") != 0:
-            return []
+            return [], 0
         candidates = []
+        filtered_total, filtered_predicted = 0, 0
         for t in resp["result"]["list"]:
             fr = float(t.get("fundingRate", 0) or 0) * 100
             pr = float(t.get("lastPrice", 0) or 0)
@@ -183,10 +184,16 @@ class FundingBot:
                 if sym in self._recent_exits:
                     mins = (datetime.now(timezone.utc) - self._recent_exits[sym]).total_seconds() / 60
                     if mins < RE_ENTRY_COOLDOWN_MINUTES:
+                        filtered_total += 1
                         continue
-                candidates.append({"symbol": sym, "rate": fr, "price": pr})
+                # Rate stability check: predicted funding rate should also be positive
+                predicted = float(t.get("predictedFundingRate", 0) or 0) * 100
+                if predicted < 0 and fr < 0.3:
+                    filtered_predicted += 1
+                    continue
+                candidates.append({"symbol": sym, "rate": fr, "price": pr, "predicted": predicted})
         candidates.sort(key=lambda x: x["rate"], reverse=True)
-        return candidates[:MAX_POSITIONS]
+        return candidates[:MAX_POSITIONS], filtered_predicted, filtered_total
 
     def collect_funding(self):
         now = datetime.now(timezone.utc)
@@ -309,10 +316,14 @@ class FundingBot:
         if slots <= 0:
             print(f"  Max positions reached ({len(self.active)}/{MAX_POSITIONS})")
             return
-        candidates = self.get_top_symbols()
+        candidates, filtered_predicted, filtered_cooldown = self.get_top_symbols()
         if not candidates:
-            print(f"  No symbols >= {MIN_FUNDING_RATE_PCT}%")
+            print(f"  Top symbols >= {MIN_FUNDING_RATE_PCT}%: none (filtered {filtered_predicted}+{filtered_cooldown})")
             return
+        print(f"  Top symbols >= {MIN_FUNDING_RATE_PCT}%:")
+        for c in candidates[:6]:
+            print(f"    {c['symbol']:18s} {c['rate']:.4f}% (pred={c.get('predicted',0):.4f}%)")
+        print(f"  (filtered {filtered_predicted} predicted-negative, {filtered_cooldown} cooldown)")
         entered = 0
         for best in candidates[:slots]:
             sym, fr, pr = best["symbol"], best["rate"], best["price"]
