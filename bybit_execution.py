@@ -159,6 +159,7 @@ class PaperTradeLogger:
         trade = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": "ENTRY",
+            "mode": "paper",  # Tag for rebuild filtering
             "symbol": symbol,
             "spread_pct": round(spread, 2),
             "spot_price": spot_price,
@@ -176,7 +177,7 @@ class PaperTradeLogger:
         return trade
 
     def log_exit(self, entry, exit_spread, pnl):
-        exit_rec = {**entry, "type": "EXIT",
+        exit_rec = {**entry, "type": "EXIT", "mode": "paper",
                      "exit_timestamp": datetime.now(timezone.utc).isoformat(),
                      "exit_spread_pct": round(exit_spread, 2),
                      "pnl_usdt": round(pnl, 2)}
@@ -201,11 +202,19 @@ class BybitArbitrageEngine:
     def _rebuild_active_positions(self):
         """Rebuild active_positions from paper_trades.json using entry-exit pairing.
         Tracks individual entries per symbol — one exit closes ONE entry.
-        Positions persist across cron invocations."""
+        Positions persist across cron invocations.
+        In live mode, only rebuilds from 'mode'='live' entries.
+        """
+        # Filter to current mode
+        mode_filter = 'live' if not self.paper_trade else None  # None = all (paper log has no mode tag)
+        
         # Build ordered lists of entries and exits by timestamp
         entries = []  # (symbol, timestamp, trade_dict)
         exits = []    # (symbol, timestamp)
         for trade in self.logger.trades:
+            # Filter by mode: in live mode, only rebuild from 'mode':'live' entries
+            if mode_filter is not None and trade.get('mode') != mode_filter:
+                continue
             if trade["type"] == "ENTRY":
                 entries.append((
                     trade["symbol"],
@@ -460,8 +469,13 @@ class BybitArbitrageEngine:
 
             pos["spot_order_id"] = spot_id
             pos["perp_order_id"] = perp_id
+            pos["mode"] = "live"
             self.active_positions[pos["symbol"]] = pos
-            msg = (f"✅ REAL ENTRY (LIMIT):\\n"
+            # Persist to log for cross-cron rebuild
+            self.logger.trades.append({**pos, "type": "ENTRY", "mode": "live",
+                "timestamp": datetime.now(timezone.utc).isoformat()})
+            self.logger._save()
+            msg = (f"REAL ENTRY (LIMIT):\n"
                    f"  {pos['symbol']} | Spread: {pos['spread']:.2f}%\\n"
                    f"  Spot Buy @ {spot_price} (PostOnly) | Perp Sell @ {perp_price} (PostOnly)\\n"
                    f"  Value: ${pos['value_usdt']:.0f} | Target: ${pos['profit_usdt']:.2f}")
@@ -638,7 +652,12 @@ class BybitArbitrageEngine:
                 if perp_exit.get("retCode") != 0:
                     print(f"❌ Perp market exit fallback also failed: {perp_exit}")
 
-            print(f"✅ REAL EXIT (LIMIT): {symbol} | Spot @ {spot_price} | Perp @ {perp_price} | PnL: ${pnl:.2f}")
+            print(f"REAL EXIT (LIMIT): {symbol} | Spot @ {spot_price} | Perp @ {perp_price} | PnL: ${pnl:.2f}")
+            # Log live exit for cross-cron tracking
+            self.logger.trades.append({**entry, "type": "EXIT", "mode": "live",
+                "exit_timestamp": datetime.now(timezone.utc).isoformat(),
+                "exit_spread_pct": round(spread, 2), "pnl_usdt": round(pnl, 2)})
+            self.logger._save()
         except Exception as e:
             print(f"❌ Exit failed: {e}")
 
