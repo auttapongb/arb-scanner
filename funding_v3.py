@@ -13,6 +13,7 @@ MAX_POSITIONS = 3
 POSITION_SIZE = CAPITAL / MAX_POSITIONS  # ~$33 each
 EXIT_FUNDING_RATE_PCT = 0.01
 STOP_LOSS_PRICE_PCT = 2.0
+MIN_HOLD_HOURS = 4  # don't exit on funding drop in first 4h; let it collect funding
 MAX_HOLD_HOURS = 24
 LIMIT_FEE_RATE = 0.0002
 FEE_RATE = 0.001
@@ -178,7 +179,10 @@ class FundingV3:
             hours = (now - ed).total_seconds() / 3600
             reason = None
             if cur_fr < EXIT_FUNDING_RATE_PCT or cur_fr < 0:
-                reason = f"funding drop {cur_fr:.4f}%"
+                if hours >= MIN_HOLD_HOURS:
+                    reason = f"funding drop {cur_fr:.4f}%"
+                else:
+                    print(f"  HOLD {sym}: funding dropped ({cur_fr:.4f}%) but only {hours:.1f}h old (min {MIN_HOLD_HOURS}h)")
             elif price_chg >= STOP_LOSS_PRICE_PCT:
                 reason = f"stop +{price_chg:.2f}%"
             elif hours >= MAX_HOLD_HOURS:
