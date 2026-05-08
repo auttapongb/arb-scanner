@@ -647,6 +647,10 @@ class BybitArbitrageEngine:
 
 def main():
     """Single scan run (for cron)."""
+    global LIVE_MODE
+    if "--live" in sys.argv:
+        LIVE_MODE = True
+        sys.argv.remove("--live")
     if not BYBIT_API_KEY:
         print(json.dumps({"status": "error", "message": "No BYBIT_API_KEY set"}))
         return 1

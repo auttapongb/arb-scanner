@@ -410,6 +410,10 @@ def run_simulation():
     return result
 
 def main():
+    global LIVE_MODE
+    if "--live" in sys.argv:
+        LIVE_MODE = True
+        sys.argv.remove("--live")
     if not BYBIT_API_KEY:
         print(json.dumps({"status":"error","msg":"No API key"}))
         return 1

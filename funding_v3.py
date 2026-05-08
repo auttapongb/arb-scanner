@@ -5,7 +5,12 @@ from datetime import datetime, timezone, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY", "")
-BYBIT_PRIV_KEY_PATH = "/root/arb-scanner/bybit_private_key_rsa.pem"
+BYBIT_PRIV_KEY_PATH = os.environ.get("BYBIT_API_PRIVATE_KEY_PATH",
+    "/root/arb-scanner/bybit_private_key_rsa.pem")
+BYBIT_BASE_URL = "https://api.bybit.com"
+
+# Live / paper toggle
+LIVE_MODE = False  # Set True for real orders
 
 CAPITAL = 100.0
 MIN_FUNDING_RATE_PCT = 0.05
@@ -27,11 +32,28 @@ def bybit_get(path, params=None):
     proc = subprocess.run(["openssl","dgst","-sha256","-sign",BYBIT_PRIV_KEY_PATH,"-binary"],
         input=ps.encode(), capture_output=True, timeout=5)
     sig = subprocess.run(["base64","-w0"], input=proc.stdout, capture_output=True, timeout=5).stdout.decode().strip()
-    url = f"https://api.bybit.com{path}" + (f"?{q}" if q else "")
+    url = f"{BYBIT_BASE_URL}{path}" + (f"?{q}" if q else "")
     h = {"X-BAPI-API-KEY": BYBIT_API_KEY, "X-BAPI-TIMESTAMP": ts, "X-BAPI-SIGN": sig,
          "X-BAPI-RECV-WINDOW": rw, "X-BAPI-SIGN-TYPE": "2"}
     try:
         with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=10) as r:
+            return json.loads(r.read())
+    except Exception as e:
+        return {"retCode": -1, "retMsg": str(e)}
+
+def bybit_post(path, body):
+    bs = json.dumps(body, separators=(",",":"))
+    ts = str(int(time.time() * 1000))
+    rw = "5000"
+    ps = f"{ts}{BYBIT_API_KEY}{rw}{bs}"
+    proc = subprocess.run(["openssl","dgst","-sha256","-sign",BYBIT_PRIV_KEY_PATH,"-binary"],
+        input=ps.encode(), capture_output=True, timeout=5)
+    sig = subprocess.run(["base64","-w0"], input=proc.stdout, capture_output=True, timeout=5).stdout.decode().strip()
+    h = {"X-BAPI-API-KEY": BYBIT_API_KEY, "X-BAPI-TIMESTAMP": ts, "X-BAPI-SIGN": sig,
+         "X-BAPI-RECV-WINDOW": rw, "X-BAPI-SIGN-TYPE": "2", "Content-Type": "application/json"}
+    try:
+        req = urllib.request.Request(f"{BYBIT_BASE_URL}{path}", data=bs.encode(), headers=h, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as r:
             return json.loads(r.read())
     except Exception as e:
         return {"retCode": -1, "retMsg": str(e)}
@@ -194,6 +216,22 @@ class FundingV3:
                 total = fc + price_pnl - exit_fee
                 entry_fee = pos.get("entry_fee", 0)
                 net = total - entry_fee
+
+                if LIVE_MODE:
+                    # Buy back perp to close short
+                    qty = pos.get("qty", 0)
+                    if qty > 0:
+                        close = bybit_post("/v5/order/create", {
+                            "category": "linear", "symbol": sym,
+                            "side": "Buy", "orderType": "Market",
+                            "qty": str(qty), "positionIdx": 0,
+                            "reduceOnly": True,
+                        })
+                        if close.get("retCode") == 0:
+                            print(f"  CLOSE ORDER {sym}: buy {qty} @ market | ID={close['result']['orderId']}")
+                        else:
+                            print(f"  FAILED close {sym}: {close.get('retMsg','?')}")
+
                 self.trades.append({"type":"EXIT","symbol":sym,"ts":datetime.now(timezone.utc).isoformat(),
                     "entry_price":entry_pr,"exit_price":cur_pr,"funding_collected":round(fc,2),
                     "price_pnl":round(price_pnl,2),"pnl_usdt":round(net,2),"reason":reason})
@@ -228,12 +266,27 @@ class FundingV3:
                 qty = round(qty, 4)
             val = qty * pr
             fee = val * LIMIT_FEE_RATE
+
+            if LIVE_MODE:
+                # Place real short on Bybit perp
+                order = bybit_post("/v5/order/create", {
+                    "category": "linear", "symbol": sym,
+                    "side": "Sell", "orderType": "Market",
+                    "qty": str(qty), "positionIdx": 0,
+                })
+                if order.get("retCode") != 0:
+                    print(f"  FAILED {sym}: {order.get('retMsg','?')}")
+                    continue
+                oid = order["result"]["orderId"]
+                print(f"  ORDER {sym}: short {qty} @ market | ID={oid}")
+            else:
+                print(f"  PAPER {sym}: short ${pr:.6f} rate={fr:.4f}% val=${val:.0f}")
+
             self.active[sym] = {"type":"ENTRY","symbol":sym,"ts":datetime.now(timezone.utc).isoformat(),
                 "entry_price":pr,"entry_rate":fr,"value":round(val,2),"qty":qty,
                 "entry_fee":round(fee,4),"total_collected":0.0,"last_pay_ts":None}
             self.trades.append(dict(self.active[sym]))
             entered += 1
-            print(f"  ENTER {sym}: short ${pr:.6f} rate={fr:.4f}% val=${val:.0f}")
         if entered:
             self._save()
             print(f"  Entered {entered} new position(s), active={len(self.active)}/{MAX_POSITIONS}")
@@ -264,6 +317,10 @@ class FundingV3:
                 "funding":round(tf,4),"pnl":round(rp,2)}
 
 def main():
+    global LIVE_MODE
+    if "--live" in sys.argv:
+        LIVE_MODE = True
+        sys.argv.remove("--live")
     if not BYBIT_API_KEY:
         print(json.dumps({"status":"error","msg":"No API key"}))
         return 1
