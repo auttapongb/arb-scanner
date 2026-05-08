@@ -48,7 +48,7 @@ SYMBOLS = [
     "ATOMUSDT", "UNIUSDT", "BNBUSDT",
     "NEARUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "SUIUSDT",
     # Altcoins that historically show positive spreads when majors backwardate
-    "MOVRUSDT", "SOSOUSDT", "GMXUSDT", "CLOUDUSDT", "SQDUSDT",
+    "MOVRUSDT", "SOSOUSDT", "GMXUSDT", "SQDUSDT",
     "TACUSDT", "FHEUSDT", "TRIAUSDT",
     # Extended altcoin coverage — frequently missed by core list
     "ALCHUSDT", "BOBAUSDT", "OLUSDT", "ROAMUSDT",
@@ -478,18 +478,21 @@ class BybitArbitrageEngine:
         self._cache_spot_perp_pairs()
 
         opportunities = []
+
+        # Always check exits for active positions first (even without price data)
+        for sym in list(self.active_positions.keys()):
+            self._check_exit(sym)
+
         for symbol in SYMBOLS:
             prices = self.fetch_prices(symbol)
             if not prices:
                 continue
 
-            spread = prices["spread_pct"]
-
-            # Check if we have an active position (check exit)
+            # Skip entry for active positions (already handled exit above)
             if symbol in self.active_positions:
-                self._check_exit(symbol)
-                # Skip entry — don't stack positions on same symbol
                 continue
+
+            spread = prices["spread_pct"]
 
             # Cooldown check — don't re-enter recently exited symbols
             if self._is_on_cooldown(symbol):
@@ -499,11 +502,11 @@ class BybitArbitrageEngine:
             if len(self.active_positions) >= MAX_OPEN_POSITIONS:
                 continue
 
-            # Also check exchange for any existing positions on this symbol
-            # (prevents stacking when engine restarts / memory is stale)
-            if self._has_open_position_on_exchange(symbol):
-                print(f"⏭️ {symbol}: position exists on exchange, skipping")
-                continue
+            # Exchange position check (live mode only — expensive API calls)
+            if not self.paper_trade:
+                if self._has_open_position_on_exchange(symbol):
+                    print(f"⏭️ {symbol}: position exists on exchange, skipping")
+                    continue
 
             # Check for entry
             pos = self.calculate_position(prices)
@@ -524,11 +527,31 @@ class BybitArbitrageEngine:
     def _check_exit(self, symbol):
         """Check if position should be exited."""
         prices = self.fetch_prices(symbol)
-        if not prices:
-            return
 
         entry = self.active_positions.get(symbol)
         if not entry:
+            return
+
+        # EXIT 0 (pre-check): Max age — always check even if prices are stale
+        entry_ts = entry.get("timestamp", "")
+        hours_held = 0
+        if entry_ts:
+            try:
+                from datetime import datetime
+                entry_dt = datetime.fromisoformat(entry_ts.replace("Z", "+00:00"))
+                hours_held = (datetime.utcnow() - entry_dt).total_seconds() / 3600
+            except:
+                pass
+        if hours_held >= MAX_POSITION_AGE_HOURS:
+            # Estimate PnL: no price data, assume zero convergence
+            fees = entry["value_usdt"] * (FEE_RATE * 4)
+            print(f"⏰ MAX AGE: {symbol} held {hours_held:.1f}h, force-exiting (est fees=${fees:.2f})")
+            self._execute_exit(symbol, entry.get("spread", 0), -fees)
+            return
+
+        if not prices:
+            # No price data but too young for max-age — hold
+            print(f"  ⏳ {symbol}: no price data, held {hours_held:.1f}h (waiting for max-age)")
             return
 
         current_spread = prices["spread_pct"]
@@ -550,22 +573,6 @@ class BybitArbitrageEngine:
         # EXIT 2: Stop loss — spread went deeply negative (actual loss)
         if current_spread <= STOP_LOSS_SPREAD:
             print(f"🛑 STOP LOSS: {symbol} spread {entry_spread:.2f}% → {current_spread:.2f}% (negative), Net PnL=${net_pnl:.2f}")
-            self._execute_exit(symbol, current_spread, net_pnl)
-            return
-
-        # EXIT 3: Max age — force-exit after MAX_POSITION_AGE_HOURS
-        # Use timestamp from entry to calculate real age (persists across restarts)
-        entry_ts = entry.get("timestamp", "")
-        hours_held = 0
-        if entry_ts:
-            try:
-                from datetime import datetime
-                entry_dt = datetime.fromisoformat(entry_ts.replace("Z", "+00:00"))
-                hours_held = (datetime.utcnow() - entry_dt).total_seconds() / 3600
-            except:
-                pass
-        if hours_held >= MAX_POSITION_AGE_HOURS:
-            print(f"⏰ MAX AGE: {symbol} held {hours_held:.1f}h, force-exiting (Net PnL=${net_pnl:.2f})")
             self._execute_exit(symbol, current_spread, net_pnl)
             return
 
