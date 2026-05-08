@@ -1,5 +1,0 @@
-# Bybit API Credentials (RSA)
-BYBIT_API_KEY=K5U4c6SWkQJgGlbyOy
-BYBIT_API_SECRET=/root/arb-scanner/bybit_private_key_rsa.pem
-BYBIT_API_PRIVATE_KEY_PATH=/root/arb-scanner/bybit_private_key_rsa.pem
-BYBIT_USE_RSA=true

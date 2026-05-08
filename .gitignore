@@ -3,3 +3,10 @@
 __pycache__/
 *.pyc
 venv/
+.bybit_env
+bybit_private_key.pem
+bybit_private_key_rsa.pem
+bybit_public_key.pem
+health_check.py
+funding_trades.json
+paper_trades.json
