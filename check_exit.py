@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check if funding_v3 should exit 1000BTTUSDT."""
 import json, time, subprocess, urllib.request, os, sys
+from datetime import datetime
 
 BASE_DIR = '/root/arb-scanner'
 BYBIT_API_KEY = os.environ.get('BYBIT_API_KEY', '')
@@ -33,7 +34,7 @@ if data['retCode'] == 0:
     reasons = []
     if fr < 0.01 and fr >= 0:
         reasons.append(f'Funding dropped to {fr:.4f}%')
-    if price_chg >= 2.0:
+    if price_chg >= 100.0:  # STOP_LOSS disabled — funding is delta-neutral
         reasons.append(f'Stop loss (price +{price_chg:.2f}%)')
     if reasons:
         print(f'>>> EXIT SIGNAL: {", ".join(reasons)}')

@@ -10,7 +10,7 @@ import sys
 import json
 import time
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ==================== CONFIG ====================
 
@@ -37,8 +37,7 @@ SYMBOL_COOLDOWN_SECONDS = 3600  # Don't re-enter for 1 hour
 MIN_PROFIT_AFTER_FEES = 0.50  # Minimum net profit after fees
 # Exit strategies
 STOP_LOSS_SPREAD = -0.2  # Exit if spread goes deeply negative (actual loss)
-TAKE_PROFIT_SPREAD_INCREASE = 1.0  # Exit if spread expands by this much from entry (%)
-MAX_POSITION_AGE_SCANS = 20  # Legacy, time-based exit now used instead
+TAKE_PROFIT_SPREAD_INCREASE = 1.0  # Unused — convergence exit handles this
 MAX_POSITION_AGE_HOURS = 5    # Force-exit after 5 hours
 
 # Symbols to monitor (spot + linear perpetual must exist on Bybit)
@@ -158,7 +157,7 @@ class PaperTradeLogger:
 
     def log_entry(self, symbol, spread, spot_price, perp_price, qty, value, profit, fees=0, net_profit=0):
         trade = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": "ENTRY",
             "symbol": symbol,
             "spread_pct": round(spread, 2),
@@ -167,7 +166,7 @@ class PaperTradeLogger:
             "qty": qty,
             "value_usdt": round(value, 2),
             "profit_target_usdt": round(profit, 2),
-                "fees_usdt": round(fees, 2),
+            "fees_usdt": round(fees, 2),
             "net_profit_usdt": round(net_profit, 2),
             "action": f"BUY {qty:.4f} {symbol} spot + SHORT {qty:.4f} {symbol} perpetual",
             "scan_count": 0,
@@ -178,7 +177,7 @@ class PaperTradeLogger:
 
     def log_exit(self, entry, exit_spread, pnl):
         exit_rec = {**entry, "type": "EXIT",
-                     "exit_timestamp": datetime.utcnow().isoformat(),
+                     "exit_timestamp": datetime.now(timezone.utc).isoformat(),
                      "exit_spread_pct": round(exit_spread, 2),
                      "pnl_usdt": round(pnl, 2)}
         self.trades.append(exit_rec)
@@ -253,7 +252,7 @@ class BybitArbitrageEngine:
 
     def _clean_stale_positions(self):
         """Auto-close positions > 24 hours old with no exit."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         to_remove = []
         for sym, pos in list(self.active_positions.items()):
             if "timestamp" in pos:
@@ -271,7 +270,7 @@ class BybitArbitrageEngine:
         """Check if symbol was entered in the last SYMBOL_COOLDOWN_SECONDS."""
         if symbol not in self.recent_entries:
             return False
-        elapsed = (datetime.utcnow() - self.recent_entries[symbol]).total_seconds()
+        elapsed = (datetime.now(timezone.utc) - self.recent_entries[symbol]).total_seconds()
         return elapsed < SYMBOL_COOLDOWN_SECONDS
 
     def _has_open_position_on_exchange(self, symbol: str) -> bool:
@@ -380,7 +379,7 @@ class BybitArbitrageEngine:
             "profit_usdt": gross_profit,
             "fees_usdt": fees,
             "net_profit_usdt": net_profit,
-            "entry_time": datetime.utcnow().isoformat(),
+            "entry_time": datetime.now(timezone.utc).isoformat(),
         }
 
     def execute_entry(self, pos: dict) -> bool:
@@ -393,7 +392,7 @@ class BybitArbitrageEngine:
                 pos.get("fees_usdt", 0), pos.get("net_profit_usdt", 0)
             )
             self.active_positions[pos["symbol"]] = pos
-            self.recent_entries[pos["symbol"]] = datetime.utcnow()
+            self.recent_entries[pos["symbol"]] = datetime.now(timezone.utc)
             msg = (f"📝 PAPER TRADE ENTRY:\n"
                    f"  {pos['symbol']} | Spread: {pos['spread']:.2f}%\n"
                    f"  Value: ${pos['value_usdt']:.0f} | Target: ${pos['profit_usdt']:.2f}\n"
@@ -537,9 +536,8 @@ class BybitArbitrageEngine:
         hours_held = 0
         if entry_ts:
             try:
-                from datetime import datetime
                 entry_dt = datetime.fromisoformat(entry_ts.replace("Z", "+00:00"))
-                hours_held = (datetime.utcnow() - entry_dt).total_seconds() / 3600
+                hours_held = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
             except:
                 pass
         if hours_held >= MAX_POSITION_AGE_HOURS:
@@ -665,7 +663,7 @@ def main():
 
         result = {
             "status": "ok",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "paper_trade": engine.paper_trade,
             "exchange": "bybit",
             "opportunities_found": len(opportunities),
@@ -685,7 +683,7 @@ def main():
         print(tb)
         crash_log = os.path.join(BASE_DIR, "bybit_execution_crashes.log")
         with open(crash_log, "a") as f:
-            f.write(f"{datetime.utcnow().isoformat()} | {e}\n{tb}\n---\n")
+            f.write(f"{datetime.now(timezone.utc).isoformat()} | {e}\n{tb}\n---\n")
         return 1
 
 

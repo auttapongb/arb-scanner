@@ -35,7 +35,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "ENTRY",
@@ -360,7 +362,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "ENTRY",
@@ -372,7 +376,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "ENTRY",
@@ -384,7 +390,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "ENTRY",
@@ -396,7 +404,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "ENTRY",
@@ -408,7 +418,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "ENTRY",
@@ -420,7 +432,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "ENTRY",
@@ -432,7 +446,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "ENTRY",
@@ -444,7 +460,9 @@
     "value_usdt": 20.0,
     "entry_fee": 0.004,
     "total_funding_collected": 0.0,
-    "last_funding_payment_ts": null
+    "last_funding_payment_ts": null,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00",
+    "total_collected": 0
   },
   {
     "type": "ENTRY",
@@ -529,8 +547,8 @@
     "value": 37.5,
     "qty": 468.75,
     "entry_fee": 0.0075,
-    "total_collected": 0.0,
-    "last_pay_ts": null
+    "total_collected": 0,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00"
   },
   {
     "type": "ENTRY",
@@ -553,8 +571,8 @@
     "value": 37.5,
     "qty": 474.8037,
     "entry_fee": 0.0075,
-    "total_collected": 0.0,
-    "last_pay_ts": null
+    "total_collected": 0,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00"
   },
   {
     "type": "EXIT",
@@ -575,6 +593,29 @@
     "entry_rate": 0.295921,
     "value": 50.0,
     "qty": 637.105,
+    "entry_fee": 0.01,
+    "total_collected": 0,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00"
+  },
+  {
+    "type": "EXIT",
+    "symbol": "1000BTTUSDT",
+    "ts": "2026-05-08T19:29:29.379892+00:00",
+    "entry_price": 0.0003271,
+    "exit_price": 0.0003271,
+    "funding_collected": 0,
+    "price_pnl": 0,
+    "pnl_usdt": -0.01,
+    "reason": "cleanup (held 23.7h, ghost from V2 bug)"
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "RAVEUSDT",
+    "ts": "2026-05-08T19:29:34.221372+00:00",
+    "entry_price": 0.69896,
+    "entry_rate": 0.20869600000000002,
+    "value": 50.0,
+    "qty": 71.5349,
     "entry_fee": 0.01,
     "total_collected": 0.0,
     "last_pay_ts": null

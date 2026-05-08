@@ -125,37 +125,52 @@ class FundingBot:
         self._rebuild()
 
     def _rebuild(self):
-        """Rebuild active positions from trade log, normalizing ts field."""
+        """Rebuild active positions from trade log, normalizing ts field.
+        Uses FIFO entry-exit pairing: each EXIT closes the oldest open ENTRY.
+        """
         for t in self.trades:
             if "timestamp" in t and "ts" not in t:
                 t["ts"] = t.pop("timestamp")
-        entries, exits, fundings = {}, set(), {}
-        for t in self.trades:
+        # Build ordered lists of entries and exits by symbol
+        all_entries = []  # (symbol, ts_idx, trade_dict)
+        all_exits = []    # (symbol, ts_idx)
+        fundings = {}     # symbol -> [funding_events]
+        for i, t in enumerate(self.trades):
             tp = t.get("type", "")
             if tp == "EXIT":
-                exits.add(t.get("symbol", ""))
-                exit_ts = t.get("ts", "")
-                if exit_ts:
-                    try:
-                        self._recent_exits[t["symbol"]] = datetime.fromisoformat(exit_ts.replace("Z", "+00:00"))
-                    except:
-                        pass
+                all_exits.append((t.get("symbol", ""), i, t.get("ts", "")))
             elif tp == "ENTRY":
-                entries[t.get("symbol", "")] = t
+                all_entries.append((t.get("symbol", ""), i, t))
             elif tp == "FUNDING":
                 fundings.setdefault(t.get("symbol", ""), []).append(t)
-        for s, e in entries.items():
-            if s in exits:
-                continue
-            p = dict(e)
-            fs = fundings.get(s, [])
-            p["total_collected"] = sum(f.get("net_payment", 0) for f in fs)
-            if "last_pay_ts" in e and e["last_pay_ts"] is not None:
-                p["last_pay_ts"] = e["last_pay_ts"]
-            else:
-                sf = sorted(fs, key=lambda x: x.get("ts", ""))
-                p["last_pay_ts"] = sf[-1]["ts"] if sf else None
-            self.active[s] = p
+        # Track which entries are closed (FIFO per symbol)
+        entry_closed = [False] * len(all_entries)
+        for ex_sym, ex_idx, ex_ts in all_exits:
+            # Record recent exit for cooldown
+            if ex_ts:
+                try:
+                    self._recent_exits[ex_sym] = datetime.fromisoformat(ex_ts.replace("Z", "+00:00"))
+                except:
+                    pass
+            # Close the oldest unmatched entry for this symbol
+            for ei in range(len(all_entries)):
+                if not entry_closed[ei] and all_entries[ei][0] == ex_sym:
+                    entry_closed[ei] = True
+                    break
+        # Rebuild active from open entries (only the FIRST open per symbol)
+        seen_symbols = set()
+        for i, (sym, ei, t) in enumerate(all_entries):
+            if not entry_closed[i] and sym not in seen_symbols:
+                seen_symbols.add(sym)
+                p = dict(t)
+                fs = fundings.get(sym, [])
+                p["total_collected"] = sum(f.get("net_payment", 0) for f in fs)
+                if "last_pay_ts" in t and t["last_pay_ts"] is not None:
+                    p["last_pay_ts"] = t["last_pay_ts"]
+                else:
+                    sf = sorted(fs, key=lambda x: x.get("ts", ""))
+                    p["last_pay_ts"] = sf[-1]["ts"] if sf else None
+                self.active[sym] = p
 
     def _save(self):
         save_trades(self.trades)
@@ -259,7 +274,7 @@ class FundingBot:
             hours = (now - ed).total_seconds() / 3600
             reason = None
 
-            # Max-age always checked first (even without price data)
+            # Max-age always checked first
             if hours >= MAX_HOLD_HOURS:
                 reason = f"max-age {hours:.1f}h"
             elif sym in tm:
