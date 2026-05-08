@@ -1,21 +1,22 @@
 {
-  "timestamp": "2026-05-08T16:03:35",
+  "timestamp": "2026-05-08T11:12:15",
   "discord_sent": false,
+  "discord_error": "HTTP 401 Invalid Webhook Token - webhook URL may have been rotated",
   "crypto_opportunities": 0,
-  "active_crypto_positions": 0,
+  "active_crypto_positions": 4,
   "funding_active_positions": 5,
-  "funding_pnl": -1.9,
+  "funding_pnl": -2.37,
   "funding_positions": [
-    "GOOGLUSDT 0.21%",
-    "RAREUSDT 0.32%",
-    "FLOWUSDT 0.06%",
-    "MUUSDT 0.10%",
-    "1000BTTUSDT 0.30%"
+    "GOOGLUSDT",
+    "RAREUSDT",
+    "FLOWUSDT",
+    "MUUSDT",
+    "1000BTTUSDT"
   ],
   "polymarket_opportunities": 1,
-  "polymarket_best": "GTA VI series arb @ 55.2%",
-  "polymarket_delta": "unchanged at 55.2%",
-  "crypto_delta": "down from 13 to 0 (shift from spot-perp to funding-only mode)",
+  "polymarket_best": "GTA VI series arb @ 56.7%",
+  "polymarket_delta": "spread improved from 55.2% to 56.7%",
+  "crypto_delta": "unchanged at 0 (funding-only mode)",
   "enriched_analysis_pushed": true,
   "api_server_healthy": true
 }

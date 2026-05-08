@@ -673,5 +673,35 @@
     "net_profit_usdt": 0.67,
     "action": "BUY 14285.7143 WHITEWHALEUSDT spot + SHORT 14285.7143 WHITEWHALEUSDT perpetual",
     "scan_count": 0
+  },
+  {
+    "timestamp": "2026-05-08T10:31:36.437913",
+    "type": "ENTRY",
+    "symbol": "OLUSDT",
+    "spread_pct": 0.93,
+    "spot_price": 0.009888,
+    "perp_price": 0.00998,
+    "qty": 10113.2686,
+    "value_usdt": 100.0,
+    "profit_target_usdt": 0.93,
+    "fees_usdt": 0.4,
+    "net_profit_usdt": 0.53,
+    "action": "BUY 10113.2686 OLUSDT spot + SHORT 10113.2686 OLUSDT perpetual",
+    "scan_count": 0
+  },
+  {
+    "timestamp": "2026-05-08T10:43:39.202351",
+    "type": "ENTRY",
+    "symbol": "SQDUSDT",
+    "spread_pct": 0.96,
+    "spot_price": 0.03553,
+    "perp_price": 0.03587,
+    "qty": 2814.5229,
+    "value_usdt": 100.0,
+    "profit_target_usdt": 0.96,
+    "fees_usdt": 0.4,
+    "net_profit_usdt": 0.56,
+    "action": "BUY 2814.5229 SQDUSDT spot + SHORT 2814.5229 SQDUSDT perpetual",
+    "scan_count": 0
   }
 ]

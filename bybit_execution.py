@@ -25,8 +25,9 @@ BYBIT_ENV = os.environ.get("BYBIT_ENV", "mainnet")
 PAPER_TRADE = True  # Set to False for real trades
 LIVE_MODE = False   # Set to True for live limit orders (overrides PAPER_TRADE concept)
 POSITION_SIZE_USDT = 100  # Size per leg
-MIN_SPREAD_PCT = 0.5  # Min spot-perpetual spread to enter (0.02% maker fees make 0.5% viable)
+MIN_SPREAD_PCT = 0.5  # Min spot-perpetual spread to enter
 MAX_SPREAD_PCT = 5.0  # Sanity cap
+MAX_OPEN_POSITIONS = 3  # Max simultaneous positions
 CHECK_INTERVAL = 5
 # Fee accounting
 FEE_RATE = 0.001  # 0.1% per leg (worst-case taker fee, used for safety in PnL calc)
@@ -492,6 +493,10 @@ class BybitArbitrageEngine:
 
             # Cooldown check — don't re-enter recently exited symbols
             if self._is_on_cooldown(symbol):
+                continue
+
+            # Max positions cap — don't exceed limit
+            if len(self.active_positions) >= MAX_OPEN_POSITIONS:
                 continue
 
             # Also check exchange for any existing positions on this symbol

@@ -28,5 +28,29 @@
     "gross": 0.3031,
     "fee": 0.0067,
     "net_payment": 0.2964
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "RAVEUSDT",
+    "ts": "2026-05-08T11:42:50.694732+00:00",
+    "entry_price": 0.68368,
+    "entry_rate": 0.22066,
+    "value": 33.33,
+    "qty": 48.7558,
+    "entry_fee": 0.0067,
+    "total_collected": 0.0,
+    "last_pay_ts": null
+  },
+  {
+    "type": "ENTRY",
+    "symbol": "ORCLUSDT",
+    "ts": "2026-05-08T11:42:50.694916+00:00",
+    "entry_price": 192.6,
+    "entry_rate": 0.146944,
+    "value": 33.34,
+    "qty": 0.1731,
+    "entry_fee": 0.0067,
+    "total_collected": 0.0,
+    "last_pay_ts": null
   }
 ]

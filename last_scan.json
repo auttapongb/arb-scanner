@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-05-08T16:03:35.198612",
+  "timestamp": "2026-05-08T11:11:42.861147+00:00",
   "crypto": {
     "status": "ok",
-    "timestamp": "2026-05-08T16:03:35",
+    "timestamp": "2026-05-08T11:11:42",
     "scanned": 157,
     "opportunities": 0,
     "alerts_sent": 0,
@@ -10,7 +10,7 @@
   },
   "polymarket": {
     "status": "ok",
-    "timestamp": "2026-05-08T16:03:35.191382",
+    "timestamp": "2026-05-08T11:11:42.853273",
     "scanned_polymarket": 800,
     "opportunities": 1,
     "alerts_sent": 1,
@@ -18,9 +18,9 @@
       {
         "type": "series_arb",
         "description": "gta vi",
-        "spread_pct": 55.2,
-        "profit_per_100": 55.2,
-        "action_preview": "Buy YES on 'GTA VI released before June 2026?' @ 0.80\u00a2, Buy "
+        "spread_pct": 56.7,
+        "profit_per_100": 56.7,
+        "action_preview": "Buy YES on 'GTA VI released before June 2026?' @ 0.80¢, Buy "
       }
     ]
   },
@@ -28,6 +28,6 @@
   "funding": {
     "status": "ok",
     "active_positions": 5,
-    "total_pnl": -1.9
+    "total_pnl": -2.37
   }
 }

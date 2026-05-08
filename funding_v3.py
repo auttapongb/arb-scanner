@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Funding Collector v3 — single best symbol, full $100 capital."""
+"""Funding Collector v3 — top N symbols with highest funding rate, $100 capital split."""
 import os, sys, json, subprocess, urllib.request, urllib.parse, time
 from datetime import datetime, timezone, timedelta
 
@@ -8,7 +8,9 @@ BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY", "")
 BYBIT_PRIV_KEY_PATH = "/root/arb-scanner/bybit_private_key_rsa.pem"
 
 CAPITAL = 100.0
-MIN_FUNDING_RATE_PCT = 0.20
+MIN_FUNDING_RATE_PCT = 0.05
+MAX_POSITIONS = 3
+POSITION_SIZE = CAPITAL / MAX_POSITIONS  # ~$33 each
 EXIT_FUNDING_RATE_PCT = 0.01
 STOP_LOSS_PRICE_PCT = 2.0
 MAX_HOLD_HOURS = 24
@@ -90,19 +92,20 @@ class FundingV3:
     def _save(self):
         save_trades(self.trades)
 
-    def get_best_symbol(self):
+    def get_top_symbols(self):
+        """Return sorted list of top N symbols not already active, by funding rate."""
         resp = bybit_get("/v5/market/tickers", {"category": "linear"})
         if resp.get("retCode") != 0:
-            return None
-        best = None
+            return []
+        candidates = []
         for t in resp["result"]["list"]:
             fr = float(t.get("fundingRate", 0) or 0) * 100
             pr = float(t.get("lastPrice", 0) or 0)
             sym = t["symbol"]
             if fr >= MIN_FUNDING_RATE_PCT and pr > 0.000001 and sym not in self.active:
-                if not best or fr > best["rate"]:
-                    best = {"symbol": sym, "rate": fr, "price": pr}
-        return best
+                candidates.append({"symbol": sym, "rate": fr, "price": pr})
+        candidates.sort(key=lambda x: x["rate"], reverse=True)
+        return candidates[:MAX_POSITIONS]
 
     def collect_funding(self):
         now = datetime.now(timezone.utc)
@@ -198,30 +201,38 @@ class FundingV3:
         if not closed:
             print("  No exits triggered")
 
-    def enter_position(self):
-        if self.active:
-            print(f"  Already in {list(self.active.keys())[0]}")
+    def enter_positions(self):
+        """Enter positions for all empty slots, best funding rates first."""
+        slots = MAX_POSITIONS - len(self.active)
+        if slots <= 0:
+            counts = len(self.active)
+            print(f"  Max positions reached ({counts}/{MAX_POSITIONS})")
             return
-        best = self.get_best_symbol()
-        if not best:
-            print(f"  No symbol >= {MIN_FUNDING_RATE_PCT}%")
+        candidates = self.get_top_symbols()
+        if not candidates:
+            print(f"  No symbols >= {MIN_FUNDING_RATE_PCT}%")
             return
-        sym, fr, pr = best["symbol"], best["rate"], best["price"]
-        qty = CAPITAL / pr
-        if sym == "BTCUSDT":
-            qty = round(qty, 6)
-        elif sym == "ETHUSDT":
-            qty = round(qty, 5)
-        else:
-            qty = round(qty, 4)
-        val = qty * pr
-        fee = val * LIMIT_FEE_RATE
-        self.active[sym] = {"type":"ENTRY","symbol":sym,"ts":datetime.now(timezone.utc).isoformat(),
-            "entry_price":pr,"entry_rate":fr,"value":round(val,2),"qty":qty,
-            "entry_fee":round(fee,4),"total_collected":0.0,"last_pay_ts":None}
-        self.trades.append(dict(self.active[sym]))
-        self._save()
-        print(f"  ENTER {sym}: short ${pr:.6f} rate={fr:.4f}% val=${val:.0f}")
+        entered = 0
+        for best in candidates[:slots]:
+            sym, fr, pr = best["symbol"], best["rate"], best["price"]
+            qty = POSITION_SIZE / pr
+            if sym == "BTCUSDT":
+                qty = round(qty, 6)
+            elif sym == "ETHUSDT":
+                qty = round(qty, 5)
+            else:
+                qty = round(qty, 4)
+            val = qty * pr
+            fee = val * LIMIT_FEE_RATE
+            self.active[sym] = {"type":"ENTRY","symbol":sym,"ts":datetime.now(timezone.utc).isoformat(),
+                "entry_price":pr,"entry_rate":fr,"value":round(val,2),"qty":qty,
+                "entry_fee":round(fee,4),"total_collected":0.0,"last_pay_ts":None}
+            self.trades.append(dict(self.active[sym]))
+            entered += 1
+            print(f"  ENTER {sym}: short ${pr:.6f} rate={fr:.4f}% val=${val:.0f}")
+        if entered:
+            self._save()
+            print(f"  Entered {entered} new position(s), active={len(self.active)}/{MAX_POSITIONS}")
 
     def run(self):
         print(f"\n{'='*55}")
@@ -232,20 +243,20 @@ class FundingV3:
         self.collect_funding()
         print("\n--- Check Exits ---")
         self.check_exits()
-        print("\n--- Enter Position ---")
-        self.enter_position()
+        print("\n--- Enter Positions ---")
+        self.enter_positions()
         tf = sum(t.get("net_payment",0) for t in self.trades if t["type"]=="FUNDING")
         rp = sum(t.get("pnl_usdt",0) for t in self.trades if t["type"]=="EXIT")
         sym_in = list(self.active.keys())
         print(f"\n{'='*55}")
-        print(f"  ACTIVE: {sym_in[0] if sym_in else 'none'}")
+        print(f"  ACTIVE: {', '.join(sym_in) if sym_in else 'none'}")
         print(f"  Funding collected: ${tf:.4f}")
         print(f"  Realized PnL: ${rp:.2f}")
-        if sym_in:
-            p = self.active[sym_in[0]]
-            print(f"  Est 8h: ${p.get('entry_rate',0)/100*CAPITAL:.4f}")
+        for s in sym_in:
+            p = self.active[s]
+            print(f"  {s}: est 8h=${p.get('entry_rate',0)/100*POSITION_SIZE:.4f} collected=${p.get('total_collected',0):.4f}")
         print(f"{'='*55}")
-        return {"status":"ok","active":sym_in[0] if sym_in else None,
+        return {"status":"ok","active":sym_in,
                 "funding":round(tf,4),"pnl":round(rp,2)}
 
 def main():
