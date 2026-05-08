@@ -868,5 +868,20 @@
     "net_profit_usdt": 0.63,
     "action": "BUY 13157.8947 WHITEWHALEUSDT spot + SHORT 13157.8947 WHITEWHALEUSDT perpetual",
     "scan_count": 0
+  },
+  {
+    "symbol": "WHITEWHALEUSDT",
+    "spread": 1.03,
+    "spot_price": 0.0076,
+    "perp_price": 0.007678,
+    "qty": 13157.8947,
+    "value_usdt": 100.0,
+    "profit_usdt": 1.03,
+    "timestamp": "2026-05-08T19:28:23.324764",
+    "scan_count": 0,
+    "type": "EXIT",
+    "exit_timestamp": "2026-05-08T19:33:26.074349+00:00",
+    "exit_spread_pct": 0.14,
+    "pnl_usdt": 0.49
   }
 ]

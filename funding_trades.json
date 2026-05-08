@@ -617,7 +617,7 @@
     "value": 50.0,
     "qty": 71.5349,
     "entry_fee": 0.01,
-    "total_collected": 0.0,
-    "last_pay_ts": null
+    "total_collected": 0,
+    "last_pay_ts": "2026-05-08T16:00:00+00:00"
   }
 ]

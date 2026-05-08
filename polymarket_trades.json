@@ -350,5 +350,16 @@
     "action_preview": "Buy YES on 'GTA VI released before June 2026?' @ 0.75\u00a2, Buy ",
     "action_full": "",
     "position_size_usdc": 100
+  },
+  {
+    "timestamp": "2026-05-08T19:30:03.612804+00:00",
+    "type": "ENTRY",
+    "opp_type": "series_arb",
+    "description": "gta vi",
+    "spread_pct": 74.75,
+    "profit_per_100": 74.75,
+    "action_preview": "Buy YES on 'GTA VI released before June 2026?' @ 0.75\u00a2, Buy ",
+    "action_full": "",
+    "position_size_usdc": 100
   }
 ]
