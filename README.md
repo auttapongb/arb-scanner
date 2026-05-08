@@ -2,6 +2,14 @@
 
 Multi-strategy crypto arbitrage system running on Bybit (paper mode).
 
+## Ready for Live Trade ✅
+
+All bots running in **PAPER_TRADE = True** mode. To go live:
+1. Set `PAPER_TRADE = False` in `bybit_execution.py` or pass `LIVE_MODE = True`
+2. Ensure Bybit API key has **Contract Trade + Spot Trade** permissions
+3. Confirm wallet has sufficient USDT balance
+4. The funding collector uses PostOnly limit orders (maker fees = 0.02%)
+
 ## Bots
 
 | Bot | File | Strategy | Schedule |
