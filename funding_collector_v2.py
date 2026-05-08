@@ -24,6 +24,7 @@ EXIT_FUNDING_RATE_PCT = 0.01
 STOP_LOSS_PRICE_PCT = 3.0
 MIN_HOLD_HOURS = 4  # don't exit on funding drop in first 4h
 MAX_HOLD_HOURS = 48
+RE_ENTRY_COOLDOWN_MINUTES = 60  # don't re-enter same symbol within 1h of exit
 LIMIT_FEE_RATE = 0.0002
 FEE_RATE = 0.001
 TRADE_LOG = os.path.join(BASE_DIR, "funding_trades.json")
@@ -113,6 +114,7 @@ class FundingCollectorV2:
     def __init__(self):
         self.trades = load_trades()
         self.active = get_active_positions(self.trades)
+        self._recent_exits = {}  # symbol -> datetime of last exit
 
     def _save(self):
         save_trades(self.trades)
@@ -229,6 +231,21 @@ class FundingCollectorV2:
                 price_pnl = -price_chg / 100 * pos["value_usdt"]
                 exit_fee = pos["value_usdt"] * FEE_RATE
                 total = fc + price_pnl - exit_fee
+
+                if LIVE_MODE:
+                    qty = pos.get("qty", 0)
+                    if qty > 0:
+                        close = bybit_post("/v5/order/create", {
+                            "category": "linear", "symbol": sym,
+                            "side": "Buy", "orderType": "Market",
+                            "qty": str(qty), "positionIdx": 0,
+                            "reduceOnly": True,
+                        })
+                        if close.get("retCode") == 0:
+                            print(f"  CLOSE ORDER {sym}: buy {qty} @ market | ID={close['result']['orderId']}")
+                        else:
+                            print(f"  FAILED close {sym}: {close.get('retMsg','?')}")
+
                 rec = {"type": "EXIT", "symbol": sym, "ts": now_iso(),
                     "entry_ts": pos["ts"], "entry_price": entry_pr, "exit_price": cur_pr,
                     "entry_funding_rate": pos["entry_funding_rate"],
@@ -239,6 +256,7 @@ class FundingCollectorV2:
                     "exit_reason": reason}
                 self.trades.append(rec)
                 del self.active[sym]
+                self._recent_exits[sym] = now
                 closed += 1
                 print(f"  CLOSE {sym}: fc=${fc:.2f} px=${price_pnl:.2f} fee=${exit_fee:.2f} = ${total:.2f} | {reason}")
         if not closed:
@@ -250,7 +268,11 @@ class FundingCollectorV2:
             print(f"  Max positions ({MAX_POSITIONS}) reached")
             return
         avail = [c for c in candidates if c["symbol"] not in self.active]
-        print(f"  {slots} slots, {len(avail)} candidates")
+        # Filter out symbols on cooldown (recently exited)
+        now = datetime.now(timezone.utc)
+        avail = [c for c in avail if c["symbol"] not in self._recent_exits
+                 or (now - self._recent_exits[c["symbol"]]).total_seconds() / 60 >= RE_ENTRY_COOLDOWN_MINUTES]
+        print(f"  {slots} slots, {len(avail)} candidates ({len(candidates)-len(avail)} on cooldown)")
         for c in avail[:slots]:
             self._open_short(c)
 
@@ -263,13 +285,27 @@ class FundingCollectorV2:
         if qty <= 0: return
         val = qty * pr
         fee = val * LIMIT_FEE_RATE
+
+        if LIVE_MODE:
+            order = bybit_post("/v5/order/create", {
+                "category": "linear", "symbol": sym,
+                "side": "Sell", "orderType": "Market",
+                "qty": str(qty), "positionIdx": 0,
+            })
+            if order.get("retCode") != 0:
+                print(f"  FAILED {sym}: {order.get('retMsg','?')}")
+                return
+            oid = order["result"]["orderId"]
+            print(f"  ORDER {sym}: short {qty} @ market | ID={oid}")
+        else:
+            print(f"  PAPER {sym}: short ${pr:.6f} rate={fr:.4f}% val=${val:.0f}")
+
         self.active[sym] = {"type": "ENTRY", "symbol": sym, "ts": now_iso(),
             "entry_price": pr, "entry_funding_rate": fr, "qty": qty,
             "value_usdt": round(val, 2), "entry_fee": round(fee, 4),
             "total_funding_collected": 0.0, "last_funding_payment_ts": None}
         self.trades.append(dict(self.active[sym]))
         self._save()
-        print(f"  ENTRY {sym}: short ${pr:.6f} rate={fr:.4f}% val=${val:.0f}")
 
     def run_once(self, sim_now=None):
         self.paper_trade = not LIVE_MODE
