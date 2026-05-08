@@ -1,42 +1,16 @@
 {
-  "timestamp": "2026-05-07T18:15:41.901613",
+  "timestamp": "2026-05-08T16:03:35.198612",
   "crypto": {
     "status": "ok",
-    "timestamp": "2026-05-07T18:15:38.242506",
+    "timestamp": "2026-05-08T16:03:35",
     "scanned": 157,
-    "opportunities": 13,
+    "opportunities": 0,
     "alerts_sent": 0,
-    "top_5": [
-      {
-        "symbol": "FLOWUSDT",
-        "spread_pct": 0.37,
-        "profit_usdt": 36.87
-      },
-      {
-        "symbol": "SLPUSDT",
-        "spread_pct": 0.36,
-        "profit_usdt": 35.56
-      },
-      {
-        "symbol": "MAGICUSDT",
-        "spread_pct": 0.31,
-        "profit_usdt": 30.87
-      },
-      {
-        "symbol": "BICOUSDT",
-        "spread_pct": 0.23,
-        "profit_usdt": 23.03
-      },
-      {
-        "symbol": "SNXUSDT",
-        "spread_pct": 0.12,
-        "profit_usdt": 12.28
-      }
-    ]
+    "top_5": []
   },
   "polymarket": {
     "status": "ok",
-    "timestamp": "2026-05-07T18:15:41.808710",
+    "timestamp": "2026-05-08T16:03:35.191382",
     "scanned_polymarket": 800,
     "opportunities": 1,
     "alerts_sent": 1,
@@ -50,5 +24,10 @@
       }
     ]
   },
-  "total_opportunities": 14
+  "total_opportunities": 1,
+  "funding": {
+    "status": "ok",
+    "active_positions": 5,
+    "total_pnl": -1.9
+  }
 }

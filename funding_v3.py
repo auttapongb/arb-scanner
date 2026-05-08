@@ -174,7 +174,7 @@ class FundingV3:
                 ed = now
             hours = (now - ed).total_seconds() / 3600
             reason = None
-            if cur_fr < EXIT_FUNDING_RATE_PCT and cur_fr >= 0:
+            if cur_fr < EXIT_FUNDING_RATE_PCT or cur_fr < 0:
                 reason = f"funding drop {cur_fr:.4f}%"
             elif price_chg >= STOP_LOSS_PRICE_PCT:
                 reason = f"stop +{price_chg:.2f}%"
