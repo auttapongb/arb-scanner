@@ -197,6 +197,7 @@ class BybitArbitrageEngine:
         self.scan_count = 0
         self.spot_tickers = {}
         self.perp_tickers = {}
+        self._precision_cache = {}  # symbol -> decimals for qty rounding
         self._cache_spot_perp_pairs()
 
     def _rebuild_active_positions(self):
@@ -249,12 +250,12 @@ class BybitArbitrageEngine:
                 if sym not in self.active_positions:
                     self.active_positions[sym] = {
                         "symbol": sym,
-                        "spread": trade["spread_pct"],
+                        "spread": trade.get("spread_pct", trade.get("spread", 0)),
                         "spot_price": trade["spot_price"],
                         "perp_price": trade["perp_price"],
                         "qty": trade["qty"],
                         "value_usdt": trade["value_usdt"],
-                        "profit_usdt": trade["profit_target_usdt"],
+                        "profit_usdt": trade.get("profit_target_usdt", trade.get("profit_usdt", 0)),
                         "timestamp": trade.get("timestamp", ""),
                         "scan_count": trade.get("scan_count", 0),
                     }
@@ -349,6 +350,32 @@ class BybitArbitrageEngine:
             "spread_pct": spread,
         }
 
+    def _get_qty_precision(self, symbol: str) -> int:
+        """Get lot size precision for a symbol, cached."""
+        if symbol in self._precision_cache:
+            return self._precision_cache[symbol]
+        try:
+            info_resp = bybit_get("/v5/market/instruments-info", {
+                "category": "spot",
+                "symbol": symbol,
+            })
+            lot = info_resp.get("result", {}).get("list", [{}])[0].get("lotSizeFilter", {})
+            qty_step = lot.get("qtyStep", None)
+            if qty_step and "." in qty_step:
+                decimals = len(qty_step.split(".")[1])
+            else:
+                decimals = 0
+        except Exception:
+            # Fallback precision based on symbol
+            if symbol == "BTCUSDT":
+                decimals = 6
+            elif symbol == "ETHUSDT":
+                decimals = 5
+            else:
+                decimals = 4
+        self._precision_cache[symbol] = decimals
+        return decimals
+
     def calculate_position(self, prices: dict) -> dict:
         """Calculate position size based on spread."""
         spread = prices["spread_pct"]
@@ -356,15 +383,9 @@ class BybitArbitrageEngine:
             return None
 
         qty = POSITION_SIZE_USDT / prices["spot_price"]
-        # Round to Bybit's typical precision (4 decimals for most pairs)
-        # For BTC: 6 decimals, for others: 2-4
         symbol = prices["symbol"]
-        if symbol == "BTCUSDT":
-            qty = round(qty, 6)
-        elif symbol == "ETHUSDT":
-            qty = round(qty, 5)
-        else:
-            qty = round(qty, 4)
+        decimals = self._get_qty_precision(symbol)
+        qty = round(qty, decimals)
 
         # In paper mode, use simple rounding
         if qty <= 0:
@@ -470,6 +491,7 @@ class BybitArbitrageEngine:
             pos["spot_order_id"] = spot_id
             pos["perp_order_id"] = perp_id
             pos["mode"] = "live"
+            pos["spread_pct"] = pos.get("spread", 0)  # Normalize for rebuild
             self.active_positions[pos["symbol"]] = pos
             # Persist to log for cross-cron rebuild
             self.logger.trades.append({**pos, "type": "ENTRY", "mode": "live",
