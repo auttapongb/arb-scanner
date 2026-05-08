@@ -1,0 +1,54 @@
+{
+  "timestamp": "2026-05-07T18:15:41.901613",
+  "crypto": {
+    "status": "ok",
+    "timestamp": "2026-05-07T18:15:38.242506",
+    "scanned": 157,
+    "opportunities": 13,
+    "alerts_sent": 0,
+    "top_5": [
+      {
+        "symbol": "FLOWUSDT",
+        "spread_pct": 0.37,
+        "profit_usdt": 36.87
+      },
+      {
+        "symbol": "SLPUSDT",
+        "spread_pct": 0.36,
+        "profit_usdt": 35.56
+      },
+      {
+        "symbol": "MAGICUSDT",
+        "spread_pct": 0.31,
+        "profit_usdt": 30.87
+      },
+      {
+        "symbol": "BICOUSDT",
+        "spread_pct": 0.23,
+        "profit_usdt": 23.03
+      },
+      {
+        "symbol": "SNXUSDT",
+        "spread_pct": 0.12,
+        "profit_usdt": 12.28
+      }
+    ]
+  },
+  "polymarket": {
+    "status": "ok",
+    "timestamp": "2026-05-07T18:15:41.808710",
+    "scanned_polymarket": 800,
+    "opportunities": 1,
+    "alerts_sent": 1,
+    "top_5": [
+      {
+        "type": "series_arb",
+        "description": "gta vi",
+        "spread_pct": 55.2,
+        "profit_per_100": 55.2,
+        "action_preview": "Buy YES on 'GTA VI released before June 2026?' @ 0.80\u00a2, Buy "
+      }
+    ]
+  },
+  "total_opportunities": 14
+}

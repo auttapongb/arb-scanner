@@ -1,0 +1,1 @@
+[{"timestamp": "2026-05-07T19:18:36.904448", "type": "ENTRY", "symbol": "CLOUDUSDT", "spread_pct": 2.15, "spot_price": 0.01956, "perp_price": 0.01998, "qty": 5112.4744, "value_usdt": 100.0, "profit_target_usdt": 2.15, "fees_usdt": 0.4, "net_profit_usdt": 1.75, "action": "BUY 5112.4744 CLOUDUSDT spot + SHORT 5112.4744 CLOUDUSDT perpetual"}]

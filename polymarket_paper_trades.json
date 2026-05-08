@@ -1,0 +1,32 @@
+[
+  {
+    "timestamp": "2026-05-07T18:05:06.641894",
+    "type": "ENTRY",
+    "opp_type": "series_arb",
+    "description": "gta vi",
+    "spread_pct": 54.7,
+    "profit_per_100": 54.7,
+    "action_preview": "Buy YES on 'GTA VI released before June 2026?' @ 0.80\u00a2, Buy ",
+    "action_full": ""
+  },
+  {
+    "timestamp": "2026-05-07T18:05:20.211549",
+    "type": "ENTRY",
+    "opp_type": "series_arb",
+    "description": "gta vi",
+    "spread_pct": 54.7,
+    "profit_per_100": 54.7,
+    "action_preview": "Buy YES on 'GTA VI released before June 2026?' @ 0.80\u00a2, Buy ",
+    "action_full": ""
+  },
+  {
+    "timestamp": "2026-05-07T18:15:41.898537",
+    "type": "ENTRY",
+    "opp_type": "series_arb",
+    "description": "gta vi",
+    "spread_pct": 55.2,
+    "profit_per_100": 55.2,
+    "action_preview": "Buy YES on 'GTA VI released before June 2026?' @ 0.80\u00a2, Buy ",
+    "action_full": ""
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-05-08T06:24:30",
+  "discord_sent": false,
+  "discord_error": "Invalid Webhook Token (401) - token likely revoked",
+  "crypto_opportunities": 0,
+  "crypto_new_opportunities": 0,
+  "active_crypto_positions": 1,
+  "crypto_exit": "OLUSDT +$1.12 (convergence)",
+  "polymarket_opportunities": 1,
+  "polymarket_best": "GTA VI series arb @ 53.7%",
+  "polymarket_delta": "down from 55.2% (-1.5%)",
+  "active_funding_positions": 5,
+  "funding_pnl": -1.59,
+  "top_funding_rates": ["MUUSDT 0.1613%", "1000BTTUSDT 0.1349%", "ASPUSDT 0.1069%"],
+  "enriched_analysis_pushed": true,
+  "api_server_healthy": true
+}

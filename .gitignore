@@ -1,0 +1,6 @@
+*.pem
+*.env
+.bybit_env
+bybit_private_key*.pem
+venv/
+__pycache__/
