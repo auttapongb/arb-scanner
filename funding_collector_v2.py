@@ -22,6 +22,7 @@ POSITION_SIZE_USDT = 20
 MIN_FUNDING_RATE_PCT = 0.05
 EXIT_FUNDING_RATE_PCT = 0.01
 STOP_LOSS_PRICE_PCT = 3.0
+MIN_HOLD_HOURS = 4  # don't exit on funding drop in first 4h
 MAX_HOLD_HOURS = 48
 LIMIT_FEE_RATE = 0.0002
 FEE_RATE = 0.001
@@ -78,6 +79,10 @@ def save_trades(trades):
         json.dump(trades, f, indent=2, default=str)
 
 def get_active_positions(trades):
+    # Normalize: some records have 'timestamp' instead of 'ts'
+    for t in trades:
+        if "timestamp" in t and "ts" not in t:
+            t["ts"] = t.pop("timestamp")
     entries, exits, fundings = {}, set(), {}
     for t in trades:
         if t["type"] == "EXIT":
@@ -210,7 +215,10 @@ class FundingCollectorV2:
             
             reason = None
             if cur_fr < EXIT_FUNDING_RATE_PCT and cur_fr >= 0:
-                reason = f"fund drop {cur_fr:.4f}%"
+                if hours_held >= MIN_HOLD_HOURS:
+                    reason = f"fund drop {cur_fr:.4f}%"
+                else:
+                    print(f"  HOLD {sym}: funding dropped ({cur_fr:.4f}%) but only {hours_held:.1f}h old (min {MIN_HOLD_HOURS}h)")
             elif price_chg >= STOP_LOSS_PRICE_PCT:
                 reason = f"stop-loss +{price_chg:.2f}%"
             elif hours_held >= MAX_HOLD_HOURS:
