@@ -24,7 +24,7 @@ BYBIT_ENV = os.environ.get("BYBIT_ENV", "mainnet")
 # Trading settings
 PAPER_TRADE = True  # Set to False for real trades
 LIVE_MODE = False   # Set to True for live limit orders (overrides PAPER_TRADE concept)
-POSITION_SIZE_USDT = 100  # Size per leg
+POSITION_SIZE_USDT = 35  # Size per leg (reduced to match available capital ~$40)
 MIN_SPREAD_PCT = 0.3  # Min spot-perpetual spread to enter (0.3%, cautious for tight market)
 MAX_SPREAD_PCT = 5.0  # Sanity cap
 MAX_OPEN_POSITIONS = 2  # Max simultaneous positions (2 = less risk, easier to manage)
@@ -34,6 +34,7 @@ FEE_RATE = 0.001  # 0.1% per leg (worst-case taker fee, used for safety in PnL c
 LIMIT_FEE_RATE = 0.0002  # 0.02% per leg when using PostOnly limit orders (maker)
 TAKE_PROFIT_CONVERGENCE = 0.15  # Exit when spread narrows to ≤ this
 SYMBOL_COOLDOWN_SECONDS = 3600  # Don't re-enter for 1 hour
+MAX_POSTONLY_WAIT_SECONDS = 60  # Max time to wait for PostOnly spot fill before falling back to market
 MIN_PROFIT_AFTER_FEES = 0.30  # Minimum net profit after fees ($0.30, still safe with $0.08 PostOnly fees)
 # Exit strategies
 STOP_LOSS_SPREAD = -0.2  # Exit if spread goes deeply negative (actual loss)
@@ -412,6 +413,83 @@ class BybitArbitrageEngine:
             "entry_time": datetime.now(timezone.utc).isoformat(),
         }
 
+    def _place_limit_or_market(self, category, symbol, side, qty, price, pos_idx=None):
+        """Place PostOnly limit order, wait for fill, fallback to market on timeout.
+        Returns (order_id, fill_price) or (None, None) on failure.
+        """
+        price_str = str(round(price, 6))
+        payload = {
+            "category": category,
+            "symbol": symbol,
+            "side": side,
+            "orderType": "Limit",
+            "qty": str(qty),
+            "price": price_str,
+            "timeInForce": "PostOnly",
+        }
+        if pos_idx is not None:
+            payload["positionIdx"] = pos_idx
+        if category == "spot":
+            payload["marketUnit"] = "baseCoin"
+
+        order = bybit_post("/v5/order/create", payload)
+        if order.get("retCode") != 0:
+            print(f"  ⚠️ {category} {side} limit failed ({order.get('retMsg','?')}) → market fallback")
+            payload.pop("price", None)
+            payload.pop("timeInForce", None)
+            payload["orderType"] = "Market"
+            order = bybit_post("/v5/order/create", payload)
+            if order.get("retCode") != 0:
+                print(f"  ❌ {category} {side} market also failed: {order.get('retMsg','?')}")
+                return None, None
+            print(f"  ✅ {category} {side} MARKET @ market price")
+            return order["result"]["orderId"], price_str
+
+        oid = order["result"]["orderId"]
+        print(f"  🕐 {category} {side} LIMIT @ {price_str} (PostOnly) — waiting for fill...")
+
+        # Poll for fill up to MAX_POSTONLY_WAIT_SECONDS
+        deadline = time.time() + MAX_POSTONLY_WAIT_SECONDS
+        while time.time() < deadline:
+            time.sleep(3)
+            order_status = bybit_get("/v5/order/realtime", {
+                "category": category,
+                "symbol": symbol,
+                "orderId": oid,
+            })
+            orders = order_status.get("result", {}).get("list", [])
+            if orders:
+                status = orders[0]["orderStatus"]
+                cum_qty = float(orders[0].get("cumExecQty", "0"))
+                if status == "Filled":
+                    avg_px = orders[0].get("avgPrice", price_str)
+                    print(f"  ✅ {category} {side} FILLED @ {avg_px}")
+                    return oid, avg_px
+                elif status == "PartiallyFilled":
+                    print(f"  ⏳ {category} {side} partial fill ({cum_qty}/{qty}) — waiting...")
+                elif status in ("Cancelled", "Rejected"):
+                    print(f"  ⚠️ {category} {side} {status} → market fallback")
+                    break
+            print(f"  ⏳ {category} {side} still open... (3s elapsed)")
+
+        # Timeout or cancelled → cancel remaining order and use market
+        print(f"  ⏰ {category} {side} PostOnly timeout → cancelling...")
+        try:
+            bybit_post("/v5/order/cancel", {"category": category, "symbol": symbol, "orderId": oid})
+        except:
+            pass
+        time.sleep(1)
+
+        payload.pop("price", None)
+        payload.pop("timeInForce", None)
+        payload["orderType"] = "Market"
+        order = bybit_post("/v5/order/create", payload)
+        if order.get("retCode") != 0:
+            print(f"  ❌ {category} {side} market fallback failed: {order.get('retMsg','?')}")
+            return None, None
+        print(f"  ✅ {category} {side} MARKET (after limit timeout)")
+        return order["result"]["orderId"], price_str
+
     def execute_entry(self, pos: dict) -> bool:
         """Execute entry on Bybit."""
         if self.paper_trade:
@@ -430,66 +508,36 @@ class BybitArbitrageEngine:
             print(msg)
             return True
 
-        # REAL TRADE MODE — uses PostOnly limit orders (0.02% maker fees)
+        # REAL TRADE MODE — uses PostOnly limit orders with fill verification
         try:
-            # 1. Spot buy: PostOnly limit order at best bid → maker fee (0.02%)
-            spot_price = str(round(pos.get("spot_bid", pos["spot_price"]), 6))
-            spot_order = bybit_post("/v5/order/create", {
-                "category": "spot",
-                "symbol": pos["symbol"],
-                "side": "Buy",
-                "orderType": "Limit",
-                "qty": str(pos["qty"]),
-                "price": spot_price,
-                "timeInForce": "PostOnly",
-                "marketUnit": "baseCoin",
-            })
-            if spot_order.get("retCode") != 0:
-                print(f"❌ Spot limit order failed: {spot_order.get('retMsg','?')} — falling back to market")
-                # FALLBACK: try market order (taker, 0.1% fee)
-                spot_order = bybit_post("/v5/order/create", {
-                    "category": "spot",
-                    "symbol": pos["symbol"],
-                    "side": "Buy",
-                    "orderType": "Market",
-                    "qty": str(pos["qty"]),
-                    "marketUnit": "baseCoin",
+            symbol = pos["symbol"]
+            qty = pos["qty"]
+            
+            # STEP 1: Spot buy first (must fill before we short perp)
+            spot_bid = pos.get("spot_bid", pos["spot_price"])
+            spot_id, spot_fill_px = self._place_limit_or_market("spot", symbol, "Buy", qty, spot_bid)
+            if spot_id is None:
+                print(f"❌ Spot buy failed — aborting entry for {symbol}")
+                return False
+            
+            # STEP 2: Only now place perp short (we have the spot hedge)
+            perp_ask = pos.get("perp_ask", pos["perp_price"])
+            perp_id, perp_fill_px = self._place_limit_or_market("linear", symbol, "Sell", qty, perp_ask, pos_idx=0)
+            if perp_id is None:
+                # Perp failed — revert spot position
+                print(f"⚠️ Perp short failed — selling spot to unwind...")
+                bybit_post("/v5/order/create", {
+                    "category": "spot", "symbol": symbol,
+                    "side": "Sell", "orderType": "Market",
+                    "qty": str(qty), "marketUnit": "baseCoin",
                 })
-                if spot_order.get("retCode") != 0:
-                    print(f"❌ Spot market fallback also failed: {spot_order}")
-                    return False
-            spot_id = spot_order["result"]["orderId"]
-
-            # 2. Perpetual sell (short): PostOnly limit order at best ask → maker fee (0.02%)
-            perp_price = str(round(pos.get("perp_ask", pos["perp_price"]), 6))
-            perp_order = bybit_post("/v5/order/create", {
-                "category": "linear",
-                "symbol": pos["symbol"],
-                "side": "Sell",
-                "orderType": "Limit",
-                "qty": str(pos["qty"]),
-                "price": perp_price,
-                "timeInForce": "PostOnly",
-                "positionIdx": 0,
-            })
-            if perp_order.get("retCode") != 0:
-                print(f"❌ Perp limit order failed: {perp_order.get('retMsg','?')} — falling back to market")
-                # FALLBACK: try market order
-                perp_order = bybit_post("/v5/order/create", {
-                    "category": "linear",
-                    "symbol": pos["symbol"],
-                    "side": "Sell",
-                    "orderType": "Market",
-                    "qty": str(pos["qty"]),
-                    "positionIdx": 0,
-                })
-                if perp_order.get("retCode") != 0:
-                    print(f"❌ Perp market fallback also failed: {perp_order}")
-                    return False
-            perp_id = perp_order["result"]["orderId"]
+                print(f"❌ Entry aborted for {symbol} — spot reverted")
+                return False
 
             pos["spot_order_id"] = spot_id
             pos["perp_order_id"] = perp_id
+            pos["spot_fill_px"] = spot_fill_px
+            pos["perp_fill_px"] = perp_fill_px
             pos["mode"] = "live"
             pos["spread_pct"] = pos.get("spread", 0)  # Normalize for rebuild
             self.active_positions[pos["symbol"]] = pos
@@ -499,7 +547,7 @@ class BybitArbitrageEngine:
             self.logger._save()
             msg = (f"REAL ENTRY (LIMIT):\n"
                    f"  {pos['symbol']} | Spread: {pos['spread']:.2f}%\\n"
-                   f"  Spot Buy @ {spot_price} (PostOnly) | Perp Sell @ {perp_price} (PostOnly)\\n"
+                   f"  Spot Buy @ {spot_fill_px} | Perp Sell @ {perp_fill_px}\\n"
                    f"  Value: ${pos['value_usdt']:.0f} | Target: ${pos['profit_usdt']:.2f}")
             print(msg)
             return True
@@ -623,60 +671,25 @@ class BybitArbitrageEngine:
             print(f"📝 PAPER TRADE EXIT: {symbol} | PnL: ${pnl:.2f}")
             return
 
-        # REAL EXIT — PostOnly limit orders at the opposite side (maker fees)
+        # REAL EXIT — uses same fill-verified limit order approach
         try:
-            # Fetch fresh prices for bid/ask on exit side
             prices = self.fetch_prices(symbol)
             if not prices:
                 print(f"❌ Can't exit {symbol}: no prices")
                 return
 
-            # Spot sell at best ask (maker)
-            spot_price = str(round(prices["spot_ask"], 6))
-            spot_exit = bybit_post("/v5/order/create", {
-                "category": "spot",
-                "symbol": symbol,
-                "side": "Sell",
-                "orderType": "Limit",
-                "qty": str(entry["qty"]),
-                "price": spot_price,
-                "timeInForce": "PostOnly",
-            })
-            if spot_exit.get("retCode") != 0:
-                print(f"❌ Spot limit exit failed: {spot_exit.get('retMsg','?')} — falling back to market")
-                spot_exit = bybit_post("/v5/order/create", {
-                    "category": "spot", "symbol": symbol,
-                    "side": "Sell", "orderType": "Market",
-                    "qty": str(entry["qty"]),
-                })
-                if spot_exit.get("retCode") != 0:
-                    print(f"❌ Spot market exit fallback also failed: {spot_exit}")
+            # Spot sell first (remove the hedge)
+            spot_id, _ = self._place_limit_or_market("spot", symbol, "Sell", entry["qty"], prices["spot_ask"])
+            if spot_id is None:
+                print(f"⚠️ Spot sell failed for {symbol}")
+                return
 
-            # Perp buy to close (maker) at best bid
-            perp_price = str(round(prices["perp_bid"], 6))
-            perp_exit = bybit_post("/v5/order/create", {
-                "category": "linear",
-                "symbol": symbol,
-                "side": "Buy",
-                "orderType": "Limit",
-                "qty": str(entry["qty"]),
-                "price": perp_price,
-                "timeInForce": "PostOnly",
-                "positionIdx": 0,
-                "reduceOnly": True,
-            })
-            if perp_exit.get("retCode") != 0:
-                print(f"❌ Perp limit exit failed: {perp_exit.get('retMsg','?')} — falling back to market")
-                perp_exit = bybit_post("/v5/order/create", {
-                    "category": "linear", "symbol": symbol,
-                    "side": "Buy", "orderType": "Market",
-                    "qty": str(entry["qty"]),
-                    "positionIdx": 0, "reduceOnly": True,
-                })
-                if perp_exit.get("retCode") != 0:
-                    print(f"❌ Perp market exit fallback also failed: {perp_exit}")
+            # Perp buy to close (reduceOnly)
+            perp_id, _ = self._place_limit_or_market("linear", symbol, "Buy", entry["qty"], prices["perp_bid"], pos_idx=0)
+            if perp_id is None:
+                print(f"⚠️ Perp buy-to-close failed for {symbol}")
 
-            print(f"REAL EXIT (LIMIT): {symbol} | Spot @ {spot_price} | Perp @ {perp_price} | PnL: ${pnl:.2f}")
+            print(f"REAL EXIT: {symbol} | PnL: ${pnl:.2f}")
             # Log live exit for cross-cron tracking
             self.logger.trades.append({**entry, "type": "EXIT", "mode": "live",
                 "exit_timestamp": datetime.now(timezone.utc).isoformat(),
