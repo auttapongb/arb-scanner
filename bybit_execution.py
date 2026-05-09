@@ -217,13 +217,14 @@ class BybitArbitrageEngine:
             # Filter by mode: in live mode, only rebuild from 'mode':'live' entries
             if mode_filter is not None and trade.get('mode') != mode_filter:
                 continue
-            if trade["type"] == "ENTRY":
+            tp = trade.get("type", "")
+            if tp == "ENTRY":
                 entries.append((
                     trade["symbol"],
                     trade.get("timestamp", ""),
                     trade
                 ))
-            elif trade["type"] == "EXIT":
+            elif tp == "EXIT":
                 exits.append((
                     trade["symbol"],
                     trade.get("exit_timestamp", trade.get("timestamp", ""))
@@ -604,7 +605,7 @@ class BybitArbitrageEngine:
         if opportunities:
             best = opportunities[0]
             print(f"\n🎯 Best: {best['symbol']} @ {best['spread']:.2f}% | ${best['profit_usdt']:.2f}")
-            if best["profit_usdt"] >= 0.50:
+            if best["net_profit_usdt"] >= MIN_PROFIT_AFTER_FEES:
                 self.execute_entry(best)
 
         return opportunities
@@ -679,13 +680,13 @@ class BybitArbitrageEngine:
                 return
 
             # Spot sell first (remove the hedge)
-            spot_id, _ = self._place_limit_or_market("spot", symbol, "Sell", entry["qty"], prices["spot_ask"])
+            spot_id, _ = self._place_limit_or_market("spot", symbol, "Sell", entry.get("qty", 0), prices["spot_ask"])
             if spot_id is None:
                 print(f"⚠️ Spot sell failed for {symbol}")
                 return
 
             # Perp buy to close (reduceOnly)
-            perp_id, _ = self._place_limit_or_market("linear", symbol, "Buy", entry["qty"], prices["perp_bid"], pos_idx=0)
+            perp_id, _ = self._place_limit_or_market("linear", symbol, "Buy", entry.get("qty", 0), prices["perp_bid"], pos_idx=0)
             if perp_id is None:
                 print(f"⚠️ Perp buy-to-close failed for {symbol}")
 

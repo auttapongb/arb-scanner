@@ -76,7 +76,7 @@ elif funding_pnl < -5:
 if funding_opps < 3:
     alerts.append(f'🟡 Only {funding_opps} funding opps >= 0.15% - low rate environment')
 if spread_opps < 2:
-    alerts.append(f'🟡 Only {spread_opps} spread opps >= 0.5% - tight market')
+    alerts.append(f'🟡 Only {spread_opps} spread opps >= 0.3% - tight market')
 
 # Alert: stale positions
 fund_pos = health.get('funding_positions', [])

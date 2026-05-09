@@ -91,7 +91,7 @@ try:
             pp = float(t.get('lastPrice', 0))
             sp = spot_map[sym]
             spread = ((pp - sp) / sp) * 100
-            if abs(spread) >= 0.5:
+            if abs(spread) >= 0.3:
                 spreads.append((sym, round(spread,2)))
     spreads.sort(key=lambda x: -abs(x[1]))
     results['spread_opportunities'] = len(spreads)
@@ -121,15 +121,23 @@ except Exception as e:
 try:
     with open(os.path.join(BASE, 'paper_trades.json')) as f:
         pt = json.load(f)
+    # Separate mode tracking
     arb_open = [t for t in pt if t.get('type') == 'ENTRY']
     arb_closed = [t for t in pt if t.get('type') == 'EXIT']
-    closed_symbols = {t.get('symbol') for t in arb_closed}
+    closed_symbols = {}  # symbol -> count of closes
+    for t in arb_closed:
+        sym = t.get('symbol')
+        closed_symbols[sym] = closed_symbols.get(sym, 0) + 1
     open_symbols = []
+    open_counts = {}
     for t in arb_open:
-        if t.get('symbol') not in closed_symbols:
-            open_symbols.append(t.get('symbol'))
+        sym = t.get('symbol')
+        open_counts[sym] = open_counts.get(sym, 0) + 1
+    for sym, count in open_counts.items():
+        if count > closed_symbols.get(sym, 0):
+            open_symbols.append(sym)
     results['arb_positions'] = open_symbols
-    results['arb_pnl'] = round(sum(t.get('pnl',0) for t in pt if t.get('type')=='EXIT'), 2)
+    results['arb_pnl'] = round(sum(t.get('pnl_usdt', t.get('pnl', 0)) for t in pt if t.get('type')=='EXIT'), 2)
 except Exception as e:
     results['arb_positions_error'] = str(e)
 
@@ -145,7 +153,7 @@ if results.get('funding_opportunities', 0) == 0:
     alerts.append('🟡 NO FUNDING OPPORTUNITIES >= 0.15%')
 
 if results.get('spread_opportunities', 0) == 0:
-    alerts.append('🟡 NO SPREAD OPPORTUNITIES >= 0.5%')
+    alerts.append('🟡 NO SPREAD OPPORTUNITIES >= 0.3%')
 
 results['alerts'] = alerts
 results['timestamp'] = datetime.now(timezone.utc).isoformat()
