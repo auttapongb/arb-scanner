@@ -21,21 +21,32 @@ BYBIT_PRIV_KEY_PATH = os.environ.get('BYBIT_API_PRIVATE_KEY_PATH',
     '/root/arb-scanner/bybit_private_key_rsa.pem')
 
 from safety import validate_startup, atomic_read
+from bybit_execution import WALLET_SOFT_CIRCUIT_PCT, WALLET_HARD_CIRCUIT_PCT, DAILY_TARGET_PROFIT
 
 check = validate_startup(BYBIT_API_KEY, BYBIT_PRIV_KEY_PATH, min_balance=1.0)
+wallet_balance = check.get('wallet', 0.0)
 
 # Also check session tracker for circuit breaker
 session_file = os.path.join(BASE, '.session_tracker.json')
 session = atomic_read(session_file)
 if session:
     daily_pnl = session.get("pnl", 0.0)
-    target = 5.0  # DAILY_TARGET_PROFIT from bybit_execution.py
-    max_loss = 3.0  # DAILY_MAX_LOSS from bybit_execution.py
-    if daily_pnl >= target:
-        check["circuit_breaker"] = f"🎯 Daily target hit: ${daily_pnl:.2f} >= ${target:.2f}"
-    elif daily_pnl <= -max_loss:
-        check["circuit_breaker"] = f"🛑 Max loss hit: ${daily_pnl:.2f} <= -${max_loss:.2f}"
+    # Calculate actual dollar-based thresholds using wallet balance
+    if wallet_balance > 0:
+        soft_limit = wallet_balance * (WALLET_SOFT_CIRCUIT_PCT / 100)
+        hard_limit = wallet_balance * (WALLET_HARD_CIRCUIT_PCT / 100)
+    else:
+        soft_limit = -999
+        hard_limit = -999
+
+    if daily_pnl >= DAILY_TARGET_PROFIT:
+        check["target_alert"] = f"Daily target hit: ${daily_pnl:.2f} >= ${DAILY_TARGET_PROFIT:.2f} (alert-only, does NOT stop)"
+    if daily_pnl <= hard_limit:
+        check["circuit_breaker"] = f"HARD circuit: ${daily_pnl:.2f} <= ${hard_limit:.2f} ({WALLET_HARD_CIRCUIT_PCT:.0f}% of ${wallet_balance:.2f} wallet)"
+    elif daily_pnl <= soft_limit:
+        check["circuit_breaker"] = f"SOFT circuit: ${daily_pnl:.2f} <= ${soft_limit:.2f} ({WALLET_SOFT_CIRCUIT_PCT:.0f}% of ${wallet_balance:.2f} wallet)"
     check["daily_pnl"] = daily_pnl
+    check["wallet_balance"] = wallet_balance
 
 check["can_trade"] = (check.get("ok", False) and "circuit_breaker" not in check)
 

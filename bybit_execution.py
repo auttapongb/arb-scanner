@@ -43,10 +43,16 @@ STOP_LOSS_SPREAD = -0.2  # Exit if spread goes deeply negative (actual loss)
 TAKE_PROFIT_SPREAD_INCREASE = 1.0  # Unused — convergence exit handles this
 MAX_POSITION_AGE_HOURS = 5    # Force-exit after 5 hours
 
-# Daily profit target / circuit breaker
-DAILY_TARGET_PROFIT = 5.0    # Stop trading for the day if this much profit is reached
-DAILY_MAX_LOSS = 3.0         # Stop trading for the day if this much loss is hit (circuit breaker)
-PER_TRADE_STOP_LOSS = -1.0   # Max loss per trade in USDT (hard stop if PnL <= this after fees)
+# Wallet-based risk management (auto-scaled)
+WALLET_PCT = 0.0             # Will be set from API on startup — %-based thresholds below
+# Per-position stop loss (applied to position value, not wallet)
+PER_TRADE_SOFT_SL_PCT = -5.0   # Soft warning: -5% of position value → alert, tighten monitoring
+PER_TRADE_HARD_SL_PCT = -15.0  # Hard stop: -15% of position value → force exit
+# Wallet circuit breakers (% of total wallet, not position)
+WALLET_SOFT_CIRCUIT_PCT = -10.0  # Daily -10% of wallet → stop new entries, keep existing
+WALLET_HARD_CIRCUIT_PCT = -20.0  # Daily -20% of wallet → liquidate ALL positions, stop bot
+# Daily target (alert only, never stops trading)
+DAILY_TARGET_PROFIT = 5.0    # Alert when reached (does NOT stop trading)
 
 # Symbols to monitor (spot + linear perpetual must exist on Bybit)
 SYMBOLS = [
@@ -76,12 +82,28 @@ bybit_post = make_safe_post(_bybit_api)
 # ==================== ENGINE ====================
 
 class SessionTracker:
-    """Track daily profit/loss and enforce circuit breakers."""
-    def __init__(self, logger):
+    """Track daily profit/loss and enforce circuit breakers.
+    Uses %-of-wallet thresholds that auto-scale with balance."""
+    def __init__(self, logger, wallet_balance=0.0):
         self.logger = logger
         self._session_file = os.path.join(BASE_DIR, ".session_tracker.json")
         self.daily_pnl = 0.0
+        self.wallet_balance = wallet_balance or WALLET_PCT  # fallback
         self._load()
+    
+    @property
+    def soft_circuit_limit(self):
+        """Daily PnL threshold for stopping new entries (%-based)."""
+        if self.wallet_balance <= 0:
+            return -999  # disabled
+        return self.wallet_balance * (WALLET_SOFT_CIRCUIT_PCT / 100)
+    
+    @property
+    def hard_circuit_limit(self):
+        """Daily PnL threshold for liquidating everything (%-based)."""
+        if self.wallet_balance <= 0:
+            return -999
+        return self.wallet_balance * (WALLET_HARD_CIRCUIT_PCT / 100)
     
     def _load(self):
         data = atomic_read(self._session_file)
@@ -89,6 +111,7 @@ class SessionTracker:
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             if data.get("date") == today:
                 self.daily_pnl = data.get("pnl", 0.0)
+                self.wallet_balance = data.get("wallet_balance", self.wallet_balance)
                 return
         # New day or no data
         self.daily_pnl = 0.0
@@ -98,26 +121,52 @@ class SessionTracker:
         atomic_write(self._session_file, {
             "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             "pnl": self.daily_pnl,
+            "wallet_balance": self.wallet_balance,
         })
     
     def record_exit(self, pnl_usdt):
-        """Called after a successful exit. Returns True if should keep trading, False if circuit breaker hit."""
+        """Called after a successful exit.
+        Returns (keep_trading: bool, action: str)
+          - action='ok' → keep going
+          - action='soft_circuit' → stop new entries only (daily PnL < -10% wallet)
+          - action='hard_circuit' → liquidate everything (daily PnL < -20% wallet)
+        """
         self.daily_pnl += pnl_usdt
         self._save()
+
         if self.daily_pnl >= DAILY_TARGET_PROFIT:
-            print(f"🎯 DAILY TARGET HIT: ${self.daily_pnl:.2f} >= ${DAILY_TARGET_PROFIT} — stopping for the day")
-            return False  # circuit breaker: stop trading
-        if self.daily_pnl <= -DAILY_MAX_LOSS:
-            print(f"🛑 DAILY MAX LOSS HIT: ${self.daily_pnl:.2f} <= -${DAILY_MAX_LOSS} — stopping for the day")
-            return False  # circuit breaker: stop trading
-        return True  # keep trading
+            print(f"🎯 DAILY TARGET HIT: ${self.daily_pnl:.2f} >= ${DAILY_TARGET_PROFIT} (alert only, keep trading)")
+
+        if self.daily_pnl <= self.hard_circuit_limit:
+            print(f"🛑 HARD CIRCUIT BREAKER: ${self.daily_pnl:.2f} <= {self.hard_circuit_limit:.2f} "
+                  f"({WALLET_HARD_CIRCUIT_PCT:.0f}% of ${self.wallet_balance:.2f} wallet) — "
+                  f"LIQUIDATING ALL POSITIONS")
+            return False, 'hard_circuit'
+
+        if self.daily_pnl <= self.soft_circuit_limit:
+            print(f"⛔ SOFT CIRCUIT BREAKER: ${self.daily_pnl:.2f} <= {self.soft_circuit_limit:.2f} "
+                  f"({WALLET_SOFT_CIRCUIT_PCT:.0f}% of ${self.wallet_balance:.2f} wallet) — "
+                  f"stop new entries, keep existing positions")
+            return False, 'soft_circuit'
+
+        return True, 'ok'
     
     def can_trade(self):
-        """Check if we're allowed to trade today."""
-        return -DAILY_MAX_LOSS < self.daily_pnl < DAILY_TARGET_PROFIT
+        """Check if we're allowed to enter new trades today."""
+        return self.daily_pnl > self.soft_circuit_limit
     
     def get_status(self) -> dict:
-        return {"daily_pnl": round(self.daily_pnl, 2), "target": DAILY_TARGET_PROFIT, "max_loss": DAILY_MAX_LOSS}
+        wallet_pct = 0.0
+        if self.wallet_balance > 0:
+            wallet_pct = round((self.daily_pnl / self.wallet_balance) * 100, 2)
+        return {
+            "daily_pnl": round(self.daily_pnl, 2),
+            "wallet_balance": round(self.wallet_balance, 2),
+            "daily_pnl_pct": wallet_pct,
+            "target_alert": DAILY_TARGET_PROFIT,
+            "soft_circuit": round(self.soft_circuit_limit, 2),
+            "hard_circuit": round(self.hard_circuit_limit, 2),
+        }
 
 
 class PaperTradeLogger:
@@ -165,8 +214,9 @@ class PaperTradeLogger:
 
 
 class BybitArbitrageEngine:
-    def __init__(self, paper_trade=True):
+    def __init__(self, paper_trade=True, wallet_balance=0.0):
         self.paper_trade = paper_trade
+        self.wallet_balance = wallet_balance
         self.logger = PaperTradeLogger()
         self.active_positions = {}  # symbol -> {entry details, scan_count: 0}
         self.recent_entries = {}  # symbol -> timestamp for cooldown
@@ -177,7 +227,7 @@ class BybitArbitrageEngine:
         self.perp_tickers = {}
         self._precision_cache = {}  # symbol -> decimals for qty rounding
         self._cache_spot_perp_pairs()
-        self.session = SessionTracker(self.logger)
+        self.session = SessionTracker(self.logger, wallet_balance)
 
     def _rebuild_active_positions(self):
         """Rebuild active_positions from paper_trades.json using entry-exit pairing.
@@ -543,7 +593,7 @@ class BybitArbitrageEngine:
 
         # Circuit breaker: check daily PnL before processing new entries
         if not self.session.can_trade():
-            print(f"⛔ Circuit breaker active — daily PnL ${self.session.daily_pnl:.2f} (target ${DAILY_TARGET_PROFIT} / max loss -${DAILY_MAX_LOSS})")
+            print(f"⛔ Circuit breaker active — daily PnL ${self.session.daily_pnl:.2f} (soft circuit at ${self.session.soft_circuit_limit:.2f}, hard circuit at ${self.session.hard_circuit_limit:.2f})")
             # Still need to check exits for active positions
             for sym in list(self.active_positions.keys()):
                 self._check_exit(sym)
@@ -633,23 +683,30 @@ class BybitArbitrageEngine:
         gross_pnl = (entry_spread - current_spread) / 100 * entry["value_usdt"]
         fees = entry["value_usdt"] * (FEE_RATE * 4)  # 4 legs × 0.1% each (entry spot + perp, exit spot + perp)
         net_pnl = gross_pnl - fees
+        pos_value = entry["value_usdt"]
+        pnl_pct = (net_pnl / pos_value * 100) if pos_value > 0 else 0.0
 
         # EXIT 1: Take profit — spread narrowed enough (convergence)
         # In contango, profit comes when spread contracts toward zero
         if current_spread <= TAKE_PROFIT_CONVERGENCE and current_spread >= -0.05:
-            print(f"💰 TAKE PROFIT (CONVERGENCE): {symbol} spread {entry_spread:.2f}% → {current_spread:.2f}% (converged {(entry_spread - current_spread):.2f}%), Net PnL=${net_pnl:.2f}")
+            print(f"💰 TAKE PROFIT (CONVERGENCE): {symbol} spread {entry_spread:.2f}% → {current_spread:.2f}% (converged {(entry_spread - current_spread):.2f}%), Net PnL=${net_pnl:.2f} ({pnl_pct:+.1f}% of pos)")
             self._execute_exit(symbol, current_spread, net_pnl)
             return
 
-        # EXIT 2: Stop loss — spread went deeply negative (actual loss)
+        # EXIT 2: Soft SL warning — PnL dropping, monitor closely
+        if pnl_pct <= PER_TRADE_SOFT_SL_PCT:
+            print(f"⚠️ SOFT SL WARNING: {symbol} PnL=${net_pnl:.2f} ({pnl_pct:+.1f}% of ${pos_value:.0f}) — spread {entry_spread:.2f}%→{current_spread:.2f}%, monitoring")
+            # Do NOT exit — just warn and continue monitoring
+
+        # EXIT 3: Stop loss — spread went deeply negative (actual loss)
         if current_spread <= STOP_LOSS_SPREAD:
-            print(f"🛑 STOP LOSS: {symbol} spread {entry_spread:.2f}% → {current_spread:.2f}% (negative), Net PnL=${net_pnl:.2f}")
+            print(f"🛑 STOP LOSS (SPREAD): {symbol} spread {entry_spread:.2f}% → {current_spread:.2f}% (negative), Net PnL=${net_pnl:.2f} ({pnl_pct:+.1f}% of pos)")
             self._execute_exit(symbol, current_spread, net_pnl)
             return
 
-        # EXIT 3: Per-trade stop loss — hard stop if PnL <= PER_TRADE_STOP_LOSS
-        if net_pnl <= PER_TRADE_STOP_LOSS:
-            print(f"🛑 PER-TRADE STOP LOSS: {symbol} Net PnL=${net_pnl:.2f} <= ${PER_TRADE_STOP_LOSS}, exiting")
+        # EXIT 4: Per-trade hard stop loss — PnL % exceeded threshold
+        if pnl_pct <= PER_TRADE_HARD_SL_PCT:
+            print(f"🛑 HARD STOP LOSS: {symbol} Net PnL=${net_pnl:.2f} ({pnl_pct:+.1f}% of ${pos_value:.0f}) <= {PER_TRADE_HARD_SL_PCT:.0f}%, exiting")
             self._execute_exit(symbol, current_spread, net_pnl)
             return
 
@@ -662,10 +719,10 @@ class BybitArbitrageEngine:
         if self.paper_trade:
             self.logger.log_exit(entry, spread, pnl)
             print(f"📝 PAPER TRADE EXIT: {symbol} | PnL: ${pnl:.2f}")
-            # Record exit PnL in session tracker (both paper and real)
-            keep_trading = self.session.record_exit(pnl)
+            # Record exit PnL in session tracker (returns (keep_trading, action))
+            keep_trading, action = self.session.record_exit(pnl)
             if not keep_trading:
-                print(f"⛔ Session circuit breaker active — stopping")
+                print(f"⛔ Session circuit breaker active ({action}) — stopping new entries")
             return
 
         # REAL EXIT — uses same fill-verified limit order approach
@@ -692,10 +749,10 @@ class BybitArbitrageEngine:
                 "exit_timestamp": datetime.now(timezone.utc).isoformat(),
                 "exit_spread_pct": round(spread, 2), "pnl_usdt": round(pnl, 2)})
             self.logger._save()
-            # Record exit PnL in session tracker
-            keep_trading = self.session.record_exit(pnl)
+            # Record exit PnL in session tracker (returns (keep_trading, action))
+            keep_trading, action = self.session.record_exit(pnl)
             if not keep_trading:
-                print(f"⛔ Session circuit breaker active — stopping")
+                print(f"⛔ Session circuit breaker active ({action}) — stopping new entries")
         except Exception as e:
             print(f"❌ Exit failed: {e}")
 
@@ -714,19 +771,20 @@ def main():
         print(json.dumps({"status": "error", "message": f"Private key not found: {BYBIT_PRIV_KEY_PATH}"}))
         return 1
 
-    # Startup validation — warn on failures but don't abort
+    # Startup validation — get wallet balance for %-based risk management
     startup = validate_startup(BYBIT_API_KEY, BYBIT_PRIV_KEY_PATH, min_balance=1.0)
+    wallet_balance = startup.get('wallet', 0.0)
     if not startup["ok"]:
         for check, status in startup["checks"].items():
             if not status:
                 print(f"⚠️ STARTUP CHECK FAILED: {check}")
-        if startup.get("wallet") is not None:
-            print(f"  Wallet balance: ${startup['wallet']:.2f}")
+        if wallet_balance > 0:
+            print(f"  Wallet balance: ${wallet_balance:.2f}")
         for err in startup.get("errors", []):
             print(f"  Error: {err}")
 
     try:
-        engine = BybitArbitrageEngine(paper_trade=(not LIVE_MODE))
+        engine = BybitArbitrageEngine(paper_trade=(not LIVE_MODE), wallet_balance=wallet_balance)
         opportunities = engine.scan_and_trade()
 
         result = {

@@ -150,15 +150,20 @@ try:
     if session_data:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if session_data.get("date") == today:
+            pnl = session_data.get("pnl", 0.0)
+            bal = session_data.get("wallet_balance", 0.0)
+            pnl_pct = round((pnl / bal) * 100, 2) if bal > 0 else 0.0
             results['session'] = {
-                "daily_pnl": session_data.get("pnl", 0.0),
-                "target": 5.0,
-                "max_loss": 3.0,
+                "daily_pnl": pnl,
+                "wallet_balance": bal,
+                "daily_pnl_pct": pnl_pct,
+                "soft_circuit_pct": -10.0,
+                "hard_circuit_pct": -20.0,
             }
         else:
-            results['session'] = {"daily_pnl": 0.0, "target": 5.0, "max_loss": 3.0, "note": "new day"}
+            results['session'] = {"daily_pnl": 0.0, "note": "new day"}
     else:
-        results['session'] = {"daily_pnl": 0.0, "target": 5.0, "max_loss": 3.0}
+        results['session'] = {"daily_pnl": 0.0}
 except Exception as e:
     results['session_error'] = str(e)
 
