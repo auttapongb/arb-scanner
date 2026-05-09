@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Unified health check: wallet, rates, spreads, positions."""
-import os, sys, json, time, subprocess, urllib.request, urllib.parse
+import os, sys, json, time, urllib.request, urllib.parse
 from datetime import datetime, timezone
 
 BASE = '/root/arb-scanner'
@@ -22,23 +22,10 @@ if os.path.exists(env_path):
 BYBIT_API_KEY = os.environ.get('BYBIT_API_KEY', '')
 BYBIT_PRIV_KEY_PATH = os.environ.get('BYBIT_API_PRIVATE_KEY_PATH', '/root/.bybit/private.pem')
 
-def bybit_get(path, params=None):
-    query = urllib.parse.urlencode(params) if params else ''
-    ts = str(int(time.time() * 1000))
-    rw = '5000'
-    ps = f'{ts}{BYBIT_API_KEY}{rw}{query}'
-    proc = subprocess.run(['openssl','dgst','-sha256','-sign',BYBIT_PRIV_KEY_PATH,'-binary'],
-        input=ps.encode(), capture_output=True, timeout=5)
-    sig = subprocess.run(['base64', '-w0'], input=proc.stdout, capture_output=True, timeout=5).stdout.decode().strip()
-    url = f'https://api.bybit.com{path}'
-    full_url = f'{url}?{query}' if query else url
-    req = urllib.request.Request(full_url, headers={
-        'X-BAPI-API-KEY': BYBIT_API_KEY, 'X-BAPI-TIMESTAMP': ts,
-        'X-BAPI-SIGN': sig, 'X-BAPI-RECV-WINDOW': rw,
-        'X-BAPI-SIGN-TYPE': '2', 'User-Agent': 'health-check/1.0'
-    })
-    with urllib.request.urlopen(req, timeout=10) as r:
-        return json.loads(r.read())
+# ==================== SAFE BYBIT API ====================
+from safety import SafeBybitAPI, make_safe_get, make_safe_post, atomic_read
+_bybit_api = SafeBybitAPI('https://api.bybit.com', BYBIT_API_KEY, BYBIT_PRIV_KEY_PATH)
+bybit_get = make_safe_get(_bybit_api)
 
 results = {}
 
@@ -103,8 +90,7 @@ except Exception as e:
 results['funding_positions'] = {}
 results['arb_positions'] = {}
 try:
-    with open(os.path.join(BASE, 'funding_trades.json')) as f:
-        ft = json.load(f)
+    ft = atomic_read(os.path.join(BASE, 'funding_trades.json')) or []
     entries = set()
     exits = set()
     for t in ft:
@@ -119,8 +105,7 @@ except Exception as e:
     results['funding_positions_error'] = str(e)
 
 try:
-    with open(os.path.join(BASE, 'paper_trades.json')) as f:
-        pt = json.load(f)
+    pt = atomic_read(os.path.join(BASE, 'paper_trades.json')) or []
     # Separate mode tracking
     arb_open = [t for t in pt if t.get('type') == 'ENTRY']
     arb_closed = [t for t in pt if t.get('type') == 'EXIT']

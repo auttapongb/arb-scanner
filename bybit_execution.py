@@ -9,8 +9,10 @@ import os
 import sys
 import json
 import time
-import subprocess
 from datetime import datetime, timezone
+
+# Safety module — SafeBybitAPI, atomic file ops, startup validation
+from safety import SafeBybitAPI, make_safe_get, make_safe_post, atomic_write, atomic_read, validate_startup, openssl_sign
 
 # ==================== CONFIG ====================
 
@@ -59,81 +61,11 @@ SYMBOLS = [
     "MEWUSDT", "FLOWUSDT", "WHITEWHALEUSDT", "BSBUSDT",
 ]
 
-# ==================== BYBIT API ====================
-
-def bybit_sign(method: str, path: str, query: str = "", body: str = "") -> tuple:
-    """Generate RSA-SHA256 signature for Bybit V5 API."""
-    timestamp = str(int(time.time() * 1000))
-    recv_window = "5000"
-
-    if method == "GET":
-        param_str = f"{timestamp}{BYBIT_API_KEY}{recv_window}{query}"
-    else:
-        param_str = f"{timestamp}{BYBIT_API_KEY}{recv_window}{body}"
-
-    # RSA sign via openssl
-    proc = subprocess.run(
-        ["openssl", "dgst", "-sha256", "-sign", BYBIT_PRIV_KEY_PATH, "-binary"],
-        input=param_str.encode(),
-        capture_output=True,
-        timeout=5
-    )
-    sign = subprocess.run(
-        ["base64", "-w0"],
-        input=proc.stdout,
-        capture_output=True,
-        timeout=5
-    ).stdout.decode().strip()
-
-    headers = {
-        "X-BAPI-API-KEY": BYBIT_API_KEY,
-        "X-BAPI-TIMESTAMP": timestamp,
-        "X-BAPI-SIGN": sign,
-        "X-BAPI-RECV-WINDOW": recv_window,
-        "X-BAPI-SIGN-TYPE": "2",
-        "User-Agent": "bybit-arb-engine/1.0",
-        "X-Referer": "bybit-arb-engine",
-    }
-    if method == "POST":
-        headers["Content-Type"] = "application/json"
-
-    return headers, timestamp
-
-
-def bybit_get(path: str, params: dict = None) -> dict:
-    """Authenticated GET request to Bybit."""
-    import urllib.request, urllib.parse
-
-    query = urllib.parse.urlencode(params) if params else ""
-    url = f"{BYBIT_BASE_URL}{path}"
-    if query:
-        url = f"{url}?{query}"
-
-    headers, _ = bybit_sign("GET", path, query)
-    req = urllib.request.Request(url, headers=headers, method="GET")
-
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read())
-    except Exception as e:
-        return {"retCode": -1, "retMsg": str(e)}
-
-
-def bybit_post(path: str, body: dict) -> dict:
-    """Authenticated POST request to Bybit."""
-    import urllib.request
-
-    body_str = json.dumps(body, separators=(",", ":"))
-    url = f"{BYBIT_BASE_URL}{path}"
-    headers, _ = bybit_sign("POST", path, body=body_str)
-
-    req = urllib.request.Request(url, data=body_str.encode(), headers=headers, method="POST")
-
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read())
-    except Exception as e:
-        return {"retCode": -1, "retMsg": str(e)}
+# ==================== SAFE BYBIT API ====================
+# Initialize safe API wrapper once
+_bybit_api = SafeBybitAPI(BYBIT_BASE_URL, BYBIT_API_KEY, BYBIT_PRIV_KEY_PATH)
+bybit_get = make_safe_get(_bybit_api)
+bybit_post = make_safe_post(_bybit_api)
 
 
 # ==================== ENGINE ====================
@@ -145,16 +77,11 @@ class PaperTradeLogger:
         self._load()
 
     def _load(self):
-        if os.path.exists(self.log_file):
-            try:
-                with open(self.log_file) as f:
-                    self.trades = json.load(f)
-            except:
-                self.trades = []
+        data = atomic_read(self.log_file)
+        self.trades = data if isinstance(data, list) else []
 
     def _save(self):
-        with open(self.log_file, "w") as f:
-            json.dump(self.trades, f, indent=2, default=str)
+        atomic_write(self.log_file, self.trades)
 
     def log_entry(self, symbol, spread, spot_price, perp_price, qty, value, profit, fees=0, net_profit=0):
         trade = {
@@ -713,6 +640,17 @@ def main():
     if not os.path.exists(BYBIT_PRIV_KEY_PATH):
         print(json.dumps({"status": "error", "message": f"Private key not found: {BYBIT_PRIV_KEY_PATH}"}))
         return 1
+
+    # Startup validation — warn on failures but don't abort
+    startup = validate_startup(BYBIT_API_KEY, BYBIT_PRIV_KEY_PATH, min_balance=1.0)
+    if not startup["ok"]:
+        for check, status in startup["checks"].items():
+            if not status:
+                print(f"⚠️ STARTUP CHECK FAILED: {check}")
+        if startup.get("wallet") is not None:
+            print(f"  Wallet balance: ${startup['wallet']:.2f}")
+        for err in startup.get("errors", []):
+            print(f"  Error: {err}")
 
     try:
         engine = BybitArbitrageEngine(paper_trade=(not LIVE_MODE))
