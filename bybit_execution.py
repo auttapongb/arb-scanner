@@ -43,6 +43,11 @@ STOP_LOSS_SPREAD = -0.2  # Exit if spread goes deeply negative (actual loss)
 TAKE_PROFIT_SPREAD_INCREASE = 1.0  # Unused — convergence exit handles this
 MAX_POSITION_AGE_HOURS = 5    # Force-exit after 5 hours
 
+# Daily profit target / circuit breaker
+DAILY_TARGET_PROFIT = 5.0    # Stop trading for the day if this much profit is reached
+DAILY_MAX_LOSS = 3.0         # Stop trading for the day if this much loss is hit (circuit breaker)
+PER_TRADE_STOP_LOSS = -1.0   # Max loss per trade in USDT (hard stop if PnL <= this after fees)
+
 # Symbols to monitor (spot + linear perpetual must exist on Bybit)
 SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT",
@@ -69,6 +74,51 @@ bybit_post = make_safe_post(_bybit_api)
 
 
 # ==================== ENGINE ====================
+
+class SessionTracker:
+    """Track daily profit/loss and enforce circuit breakers."""
+    def __init__(self, logger):
+        self.logger = logger
+        self._session_file = os.path.join(BASE_DIR, ".session_tracker.json")
+        self.daily_pnl = 0.0
+        self._load()
+    
+    def _load(self):
+        data = atomic_read(self._session_file)
+        if data:
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if data.get("date") == today:
+                self.daily_pnl = data.get("pnl", 0.0)
+                return
+        # New day or no data
+        self.daily_pnl = 0.0
+        self._save()
+    
+    def _save(self):
+        atomic_write(self._session_file, {
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "pnl": self.daily_pnl,
+        })
+    
+    def record_exit(self, pnl_usdt):
+        """Called after a successful exit. Returns True if should keep trading, False if circuit breaker hit."""
+        self.daily_pnl += pnl_usdt
+        self._save()
+        if self.daily_pnl >= DAILY_TARGET_PROFIT:
+            print(f"🎯 DAILY TARGET HIT: ${self.daily_pnl:.2f} >= ${DAILY_TARGET_PROFIT} — stopping for the day")
+            return False  # circuit breaker: stop trading
+        if self.daily_pnl <= -DAILY_MAX_LOSS:
+            print(f"🛑 DAILY MAX LOSS HIT: ${self.daily_pnl:.2f} <= -${DAILY_MAX_LOSS} — stopping for the day")
+            return False  # circuit breaker: stop trading
+        return True  # keep trading
+    
+    def can_trade(self):
+        """Check if we're allowed to trade today."""
+        return -DAILY_MAX_LOSS < self.daily_pnl < DAILY_TARGET_PROFIT
+    
+    def get_status(self) -> dict:
+        return {"daily_pnl": round(self.daily_pnl, 2), "target": DAILY_TARGET_PROFIT, "max_loss": DAILY_MAX_LOSS}
+
 
 class PaperTradeLogger:
     def __init__(self):
@@ -127,6 +177,7 @@ class BybitArbitrageEngine:
         self.perp_tickers = {}
         self._precision_cache = {}  # symbol -> decimals for qty rounding
         self._cache_spot_perp_pairs()
+        self.session = SessionTracker(self.logger)
 
     def _rebuild_active_positions(self):
         """Rebuild active_positions from paper_trades.json using entry-exit pairing.
@@ -490,6 +541,14 @@ class BybitArbitrageEngine:
 
         opportunities = []
 
+        # Circuit breaker: check daily PnL before processing new entries
+        if not self.session.can_trade():
+            print(f"⛔ Circuit breaker active — daily PnL ${self.session.daily_pnl:.2f} (target ${DAILY_TARGET_PROFIT} / max loss -${DAILY_MAX_LOSS})")
+            # Still need to check exits for active positions
+            for sym in list(self.active_positions.keys()):
+                self._check_exit(sym)
+            return opportunities  # Skip entering new positions
+
         # Always check exits for active positions first (even without price data)
         for sym in list(self.active_positions.keys()):
             self._check_exit(sym)
@@ -588,6 +647,12 @@ class BybitArbitrageEngine:
             self._execute_exit(symbol, current_spread, net_pnl)
             return
 
+        # EXIT 3: Per-trade stop loss — hard stop if PnL <= PER_TRADE_STOP_LOSS
+        if net_pnl <= PER_TRADE_STOP_LOSS:
+            print(f"🛑 PER-TRADE STOP LOSS: {symbol} Net PnL=${net_pnl:.2f} <= ${PER_TRADE_STOP_LOSS}, exiting")
+            self._execute_exit(symbol, current_spread, net_pnl)
+            return
+
     def _execute_exit(self, symbol, spread, pnl):
         """Exit position."""
         entry = self.active_positions.pop(symbol, None)
@@ -597,6 +662,10 @@ class BybitArbitrageEngine:
         if self.paper_trade:
             self.logger.log_exit(entry, spread, pnl)
             print(f"📝 PAPER TRADE EXIT: {symbol} | PnL: ${pnl:.2f}")
+            # Record exit PnL in session tracker (both paper and real)
+            keep_trading = self.session.record_exit(pnl)
+            if not keep_trading:
+                print(f"⛔ Session circuit breaker active — stopping")
             return
 
         # REAL EXIT — uses same fill-verified limit order approach
@@ -623,6 +692,10 @@ class BybitArbitrageEngine:
                 "exit_timestamp": datetime.now(timezone.utc).isoformat(),
                 "exit_spread_pct": round(spread, 2), "pnl_usdt": round(pnl, 2)})
             self.logger._save()
+            # Record exit PnL in session tracker
+            keep_trading = self.session.record_exit(pnl)
+            if not keep_trading:
+                print(f"⛔ Session circuit breaker active — stopping")
         except Exception as e:
             print(f"❌ Exit failed: {e}")
 
@@ -668,6 +741,7 @@ def main():
                  "profit_usdt": round(o["profit_usdt"], 2), "value_usdt": round(o["value_usdt"], 2)}
                 for o in opportunities[:5]
             ],
+            "session": engine.session.get_status(),
         }
         print(json.dumps(result, indent=2))
         return 0

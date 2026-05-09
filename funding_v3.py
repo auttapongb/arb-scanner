@@ -3,8 +3,9 @@
 Short perps with highest funding rates, collects 8h settlement payments.
 Auto-exits on funding drop, stop-loss, or max-age.
 """
-import os, sys, json, subprocess, urllib.request, urllib.parse, time
+import os, sys, json, time
 from datetime import datetime, timezone, timedelta
+from safety import SafeBybitAPI, make_safe_get, make_safe_post, atomic_write, atomic_read
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY", "")
@@ -66,55 +67,17 @@ def _round_qty(qty, sym):
     qty = max(qty, info["min_qty"])
     return qty
 
-# ==================== BYBIT API ====================
-def bybit_get(path, params=None):
-    q = urllib.parse.urlencode(params) if params else ""
-    ts = str(int(time.time() * 1000))
-    rw = "5000"
-    ps = f"{ts}{BYBIT_API_KEY}{rw}{q}"
-    proc = subprocess.run(["openssl","dgst","-sha256","-sign",BYBIT_PRIV_KEY_PATH,"-binary"],
-        input=ps.encode(), capture_output=True, timeout=5)
-    sig = subprocess.run(["base64","-w0"], input=proc.stdout, capture_output=True, timeout=5).stdout.decode().strip()
-    url = f"{BYBIT_BASE_URL}{path}" + (f"?{q}" if q else "")
-    h = {"X-BAPI-API-KEY": BYBIT_API_KEY, "X-BAPI-TIMESTAMP": ts, "X-BAPI-SIGN": sig,
-         "X-BAPI-RECV-WINDOW": rw, "X-BAPI-SIGN-TYPE": "2", "User-Agent": "funding-bot/1.0"}
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=10) as r:
-            return json.loads(r.read())
-    except Exception as e:
-        return {"retCode": -1, "retMsg": str(e)}
-
-def bybit_post(path, body):
-    bs = json.dumps(body, separators=(",",":"))
-    ts = str(int(time.time() * 1000))
-    rw = "5000"
-    ps = f"{ts}{BYBIT_API_KEY}{rw}{bs}"
-    proc = subprocess.run(["openssl","dgst","-sha256","-sign",BYBIT_PRIV_KEY_PATH,"-binary"],
-        input=ps.encode(), capture_output=True, timeout=5)
-    sig = subprocess.run(["base64","-w0"], input=proc.stdout, capture_output=True, timeout=5).stdout.decode().strip()
-    h = {"X-BAPI-API-KEY": BYBIT_API_KEY, "X-BAPI-TIMESTAMP": ts, "X-BAPI-SIGN": sig,
-         "X-BAPI-RECV-WINDOW": rw, "X-BAPI-SIGN-TYPE": "2", "Content-Type": "application/json",
-         "User-Agent": "funding-bot/1.0"}
-    try:
-        req = urllib.request.Request(f"{BYBIT_BASE_URL}{path}", data=bs.encode(), headers=h, method="POST")
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read())
-    except Exception as e:
-        return {"retCode": -1, "retMsg": str(e)}
+# ==================== SAFE BYBIT API ====================
+_bybit_api = SafeBybitAPI(BYBIT_BASE_URL, BYBIT_API_KEY, BYBIT_PRIV_KEY_PATH)
+bybit_get = make_safe_get(_bybit_api)
+bybit_post = make_safe_post(_bybit_api)
 
 # ==================== TRADE STORE ====================
 def load_trades():
-    if os.path.exists(TRADE_LOG):
-        try:
-            with open(TRADE_LOG) as f:
-                return json.load(f)
-        except:
-            return []
-    return []
+    return atomic_read(TRADE_LOG) or []
 
 def save_trades(t):
-    with open(TRADE_LOG, "w") as f:
-        json.dump(t, f, indent=2, default=str)
+    atomic_write(TRADE_LOG, t)
 
 # ==================== BOT ====================
 class FundingBot:

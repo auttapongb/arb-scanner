@@ -143,4 +143,23 @@ if results.get('spread_opportunities', 0) == 0:
 results['alerts'] = alerts
 results['timestamp'] = datetime.now(timezone.utc).isoformat()
 
+# === SESSION STATUS ===
+try:
+    session_file = os.path.join(BASE, '.session_tracker.json')
+    session_data = atomic_read(session_file)
+    if session_data:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if session_data.get("date") == today:
+            results['session'] = {
+                "daily_pnl": session_data.get("pnl", 0.0),
+                "target": 5.0,
+                "max_loss": 3.0,
+            }
+        else:
+            results['session'] = {"daily_pnl": 0.0, "target": 5.0, "max_loss": 3.0, "note": "new day"}
+    else:
+        results['session'] = {"daily_pnl": 0.0, "target": 5.0, "max_loss": 3.0}
+except Exception as e:
+    results['session_error'] = str(e)
+
 print(json.dumps(results, indent=2))
