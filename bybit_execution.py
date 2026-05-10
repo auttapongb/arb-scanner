@@ -19,17 +19,23 @@ from safety import SafeBybitAPI, make_safe_get, make_safe_post, atomic_write, at
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY", "")
-BYBIT_PRIV_KEY_PATH = os.environ.get("BYBIT_API_PRIVATE_KEY_PATH", "/root/arb-scanner/bybit_private_key_rsa.pem")
+BYBIT_PRIV_KEY_PATH = os.environ.get("BYBIT_API_PRIVATE_KEY_PATH", "/root/.bybit/private.pem")
 BYBIT_BASE_URL = "https://api.bybit.com"
 BYBIT_ENV = os.environ.get("BYBIT_ENV", "mainnet")
 
 # Trading settings
 PAPER_TRADE = True  # Set to False for real trades
 LIVE_MODE = False   # Set to True for live limit orders (overrides PAPER_TRADE concept)
-POSITION_SIZE_USDT = 35  # Size per leg (reduced to match available capital ~$40)
-MIN_SPREAD_PCT = 0.3  # Min spot-perpetual spread to enter (0.3%, cautious for tight market)
+POSITION_SIZE_USDT = 35  # Size per leg
+# v2 FIXES:
+# - MIN_SPREAD raised 0.3→1.5% (round-trip taker fees ~0.4%, need margin for profit)
+# - MAX_OPEN_POSITIONS 2→1 (protect $136 wallet, reduce exposure)
+# - STOP_LOSS_SPREAD made convergence-relative (was fixed -0.2% causing false exits)
+# - BLACKLISTED_SYMBOLS added for thin-book coins that caused 7-loss streak
+# - CONSECUTIVE_LOSS_LIMIT added (was missing entirely from original)
+MIN_SPREAD_PCT = 1.5  # Raised from 0.3% — need buffer over ~0.4% round-trip fees
 MAX_SPREAD_PCT = 5.0  # Sanity cap
-MAX_OPEN_POSITIONS = 2  # Max simultaneous positions (2 = less risk, easier to manage)
+MAX_OPEN_POSITIONS = 1  # Reduced from 2 — protect wallet at $136
 CHECK_INTERVAL = 5
 # Fee accounting
 FEE_RATE = 0.001  # 0.1% per leg (worst-case taker fee, used for safety in PnL calc)
@@ -37,11 +43,24 @@ LIMIT_FEE_RATE = 0.0002  # 0.02% per leg when using PostOnly limit orders (maker
 TAKE_PROFIT_CONVERGENCE = 0.15  # Exit when spread narrows to ≤ this
 SYMBOL_COOLDOWN_SECONDS = 3600  # Don't re-enter for 1 hour
 MAX_POSTONLY_WAIT_SECONDS = 60  # Max time to wait for PostOnly spot fill before falling back to market
-MIN_PROFIT_AFTER_FEES = 0.30  # Minimum net profit after fees ($0.30, still safe with $0.08 PostOnly fees)
+MIN_PROFIT_AFTER_FEES = 0.40  # Raised from 0.30 — minimum net profit after fees
 # Exit strategies
-STOP_LOSS_SPREAD = -0.2  # Exit if spread goes deeply negative (actual loss)
+# CONVERGENCE-RELATIVE stop loss (v2 fix):
+# Old: STOP_LOSS_SPREAD = -0.2  ← fixed absolute, fired on profitable positions
+# New: exit when spread WIDENS more than 0.3% from entry (true loss signal)
+STOP_LOSS_SPREAD_DELTA = -0.3  # Exit if current_spread > entry_spread + 0.3% (spread widening = loss)
+STOP_LOSS_SPREAD = -0.2  # Keep for hard floor (deeply negative spread = loss regardless)
 TAKE_PROFIT_SPREAD_INCREASE = 1.0  # Unused — convergence exit handles this
-MAX_POSITION_AGE_HOURS = 5    # Force-exit after 5 hours
+MAX_POSITION_AGE_HOURS = 3    # Reduced from 5h — exit faster, less overnight risk
+# Consecutive loss circuit breaker (NEW — was missing in original)
+CONSECUTIVE_LOSS_LIMIT = 2       # Pause after N losses in a row
+CONSECUTIVE_LOSS_PAUSE_MIN = 120 # Pause duration in minutes
+_CONSECUTIVE_LOSSES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".consecutive_losses.json")
+# Thin-book coins that caused the 7-loss streak — NEVER trade these
+BLACKLISTED_SYMBOLS = {
+    "HPOS10IUSDT", "OLUSDT", "SLPUSDT", "WHITEWHALEUSDT", "BOBAUSDT",
+    "RAVEUSDT", "REQUSDT", "SPORTFUNUSDT", "BSBUSDT",
+}
 
 # Wallet-based risk management (auto-scaled)
 WALLET_PCT = 0.0             # Will be set from API on startup — %-based thresholds below
@@ -130,9 +149,36 @@ class SessionTracker:
           - action='ok' → keep going
           - action='soft_circuit' → stop new entries only (daily PnL < -10% wallet)
           - action='hard_circuit' → liquidate everything (daily PnL < -20% wallet)
+          - action='consec_loss_pause' → consecutive loss circuit breaker triggered
         """
         self.daily_pnl += pnl_usdt
         self._save()
+
+        # Consecutive loss tracking (v2 — was missing in original)
+        cl_data = {}
+        if os.path.exists(_CONSECUTIVE_LOSSES_FILE):
+            try:
+                with open(_CONSECUTIVE_LOSSES_FILE) as f:
+                    cl_data = json.load(f)
+            except Exception:
+                pass
+        if pnl_usdt > 0:
+            cl_data['count'] = 0
+            cl_data['pause_until'] = None
+        else:
+            cl_data['count'] = cl_data.get('count', 0) + 1
+        cl_data['last_pnl'] = pnl_usdt
+        with open(_CONSECUTIVE_LOSSES_FILE, 'w') as f:
+            json.dump(cl_data, f)
+
+        if cl_data.get('count', 0) >= CONSECUTIVE_LOSS_LIMIT:
+            from datetime import timedelta
+            pause_until = datetime.now(timezone.utc) + timedelta(minutes=CONSECUTIVE_LOSS_PAUSE_MIN)
+            cl_data['pause_until'] = pause_until.isoformat()
+            with open(_CONSECUTIVE_LOSSES_FILE, 'w') as f:
+                json.dump(cl_data, f)
+            print(f"⛔ CONSECUTIVE LOSS LIMIT ({CONSECUTIVE_LOSS_LIMIT}) — pausing {CONSECUTIVE_LOSS_PAUSE_MIN}min until {pause_until.strftime('%H:%M UTC')}")
+            return False, 'consec_loss_pause'
 
         if self.daily_pnl >= DAILY_TARGET_PROFIT:
             print(f"🎯 DAILY TARGET HIT: ${self.daily_pnl:.2f} >= ${DAILY_TARGET_PROFIT} (alert only, keep trading)")
@@ -150,10 +196,33 @@ class SessionTracker:
             return False, 'soft_circuit'
 
         return True, 'ok'
-    
+
     def can_trade(self):
         """Check if we're allowed to enter new trades today."""
-        return self.daily_pnl > self.soft_circuit_limit
+        if self.daily_pnl <= self.soft_circuit_limit:
+            return False
+        # Check consecutive loss pause
+        if os.path.exists(_CONSECUTIVE_LOSSES_FILE):
+            try:
+                with open(_CONSECUTIVE_LOSSES_FILE) as f:
+                    cl = json.load(f)
+                pause_until = cl.get('pause_until')
+                if pause_until:
+                    from datetime import timedelta
+                    pu = datetime.fromisoformat(pause_until)
+                    if datetime.now(timezone.utc) < pu:
+                        mins_left = int((pu - datetime.now(timezone.utc)).total_seconds() / 60)
+                        print(f"⛔ Consecutive loss pause active — {mins_left}min remaining")
+                        return False
+                    else:
+                        # Pause expired — reset counter
+                        cl['count'] = 0
+                        cl['pause_until'] = None
+                        with open(_CONSECUTIVE_LOSSES_FILE, 'w') as f2:
+                            json.dump(cl, f2)
+            except Exception:
+                pass
+        return True
     
     def get_status(self) -> dict:
         wallet_pct = 0.0
@@ -614,6 +683,10 @@ class BybitArbitrageEngine:
 
             spread = prices["spread_pct"]
 
+            # Blacklist check — never trade thin-book coins
+            if symbol in BLACKLISTED_SYMBOLS:
+                continue
+
             # Cooldown check — don't re-enter recently exited symbols
             if self._is_on_cooldown(symbol):
                 continue
@@ -699,6 +772,14 @@ class BybitArbitrageEngine:
             # Do NOT exit — just warn and continue monitoring
 
         # EXIT 3: Stop loss — spread went deeply negative (actual loss)
+        # v2 FIX: CONVERGENCE-RELATIVE check first (was pure absolute -0.2% before)
+        # This prevents false exits on profitable positions where spread moved from +1.5% to -0.1%
+        spread_delta = current_spread - entry_spread  # positive = spread WIDENED = bad
+        if spread_delta > abs(STOP_LOSS_SPREAD_DELTA):
+            print(f"🛑 STOP LOSS (SPREAD WIDENED): {symbol} spread {entry_spread:.2f}% → {current_spread:.2f}% (widened {spread_delta:+.2f}% > {abs(STOP_LOSS_SPREAD_DELTA):.1f}% threshold), Net PnL=${net_pnl:.2f}")
+            self._execute_exit(symbol, current_spread, net_pnl)
+            return
+
         if current_spread <= STOP_LOSS_SPREAD:
             print(f"🛑 STOP LOSS (SPREAD): {symbol} spread {entry_spread:.2f}% → {current_spread:.2f}% (negative), Net PnL=${net_pnl:.2f} ({pnl_pct:+.1f}% of pos)")
             self._execute_exit(symbol, current_spread, net_pnl)
@@ -725,23 +806,25 @@ class BybitArbitrageEngine:
                 print(f"⛔ Session circuit breaker active ({action}) — stopping new entries")
             return
 
-        # REAL EXIT — uses same fill-verified limit order approach
+        # REAL EXIT — v2 FIX: PERP FIRST then SPOT (fixes "Insufficient balance" bug)
+        # In UNIFIED account with spotHedging, spot tokens are locked as perp margin.
+        # Must close perp first to release margin, then sell spot.
         try:
             prices = self.fetch_prices(symbol)
             if not prices:
                 print(f"❌ Can't exit {symbol}: no prices")
                 return
 
-            # Spot sell first (remove the hedge)
-            spot_id, _ = self._place_limit_or_market("spot", symbol, "Sell", entry.get("qty", 0), prices["spot_ask"])
-            if spot_id is None:
-                print(f"⚠️ Spot sell failed for {symbol}")
-                return
-
-            # Perp buy to close (reduceOnly)
+            # STEP 1: Close perp SHORT first (buy to close, reduceOnly)
             perp_id, _ = self._place_limit_or_market("linear", symbol, "Buy", entry.get("qty", 0), prices["perp_bid"], pos_idx=0)
             if perp_id is None:
                 print(f"⚠️ Perp buy-to-close failed for {symbol}")
+                # Don't return — still try spot sell
+
+            time.sleep(1)  # Brief pause to let perp close settle
+
+            # STEP 2: Sell spot (now margin is released)
+            spot_id, _ = self._place_limit_or_market("spot", symbol, "Sell", entry.get("qty", 0), prices["spot_ask"])
 
             print(f"REAL EXIT: {symbol} | PnL: ${pnl:.2f}")
             # Log live exit for cross-cron tracking
@@ -773,7 +856,7 @@ def main():
 
     # Startup validation — get wallet balance for %-based risk management
     startup = validate_startup(BYBIT_API_KEY, BYBIT_PRIV_KEY_PATH, min_balance=1.0)
-    wallet_balance = startup.get('wallet', 0.0)
+    wallet_balance = startup.get('wallet') or 0.0
     if not startup["ok"]:
         for check, status in startup["checks"].items():
             if not status:
