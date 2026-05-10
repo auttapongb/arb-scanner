@@ -10,7 +10,7 @@ from safety import SafeBybitAPI, make_safe_get, make_safe_post, atomic_write, at
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY", "")
 BYBIT_PRIV_KEY_PATH = os.environ.get("BYBIT_API_PRIVATE_KEY_PATH",
-    "/root/arb-scanner/bybit_private_key_rsa.pem")
+    "/root/.bybit/private.pem")
 BYBIT_BASE_URL = "https://api.bybit.com"
 LIVE_MODE = False  # Set True for real orders
 
@@ -21,13 +21,21 @@ POSITION_SIZE = CAPITAL / MAX_POSITIONS  # ~$50 each
 
 MIN_FUNDING_RATE_PCT = 0.20   # Only enter rates >= 0.20% — filters out 90% of false signals
 EXIT_FUNDING_RATE_PCT = 0.01
-STOP_LOSS_PRICE_PCT = 100.0   # DISABLED — funding bot is delta-neutral, price doesn't matter for funding collection
+STOP_LOSS_PRICE_PCT = 8.0    # Exit if price moves 8% against us (short = price rising 8%)
 MIN_HOLD_HOURS = 6             # Wait for at least one settlement window
 MAX_HOLD_HOURS = 24
 RE_ENTRY_COOLDOWN_MINUTES = 120
 LIMIT_FEE_RATE = 0.0002
 FEE_RATE = 0.001
 TRADE_LOG = os.path.join(BASE_DIR, "funding_trades.json")
+
+# Stock/commodity tokenized perps — require T&C acceptance on Bybit, skip these
+STOCK_PERPS = {
+    'MSTRUSDT','COINUSDT','CRCLUSDT','EWYUSDT','HOODUSDT','INTCUSDT',
+    'NVDAUSDT','MUUSDT','GOOGLUSDT','TSLAUSDT','XAGUSDT','XAUUSDT',
+    'SNDKUSDT','VINEUSDT','AAPLOUSDT','MSFTUSDT','AMZNUSDT','METAUSDT',
+    'PLTRUSDT',  # Also requires T&C
+}
 
 # Cache for lot size filters (symbol -> {"qty_step": N, "min_qty": N})
 _lot_cache = {}
@@ -52,18 +60,20 @@ def _get_lot_info(sym):
     return _lot_cache[sym]
 
 def _round_qty(qty, sym):
-    """Round qty to the lot size step for the symbol."""
+    """Round qty DOWN to the lot size step for the symbol."""
+    import math
     info = _get_lot_info(sym)
     step = info["qty_step"]
     if step <= 0:
-        step = 0.0001
-    # Calculate decimal precision from step
+        step = 1
     step_str = f"{step:.10f}".rstrip("0")
     if "." in step_str:
         dec = len(step_str.split(".")[1])
     else:
         dec = 0
-    qty = round(qty, max(dec, 4))
+    # Floor to step (never round up — avoids "Qty invalid")
+    qty = math.floor(qty / step) * step
+    qty = round(qty, dec)
     qty = max(qty, info["min_qty"])
     return qty
 
@@ -157,7 +167,7 @@ class FundingBot:
             fr = float(t.get("fundingRate", 0) or 0) * 100
             pr = float(t.get("lastPrice", 0) or 0)
             sym = t["symbol"]
-            if fr >= MIN_FUNDING_RATE_PCT and pr > 0.000001 and sym not in self.active:
+            if fr >= MIN_FUNDING_RATE_PCT and pr > 0.000001 and sym not in self.active and sym not in STOCK_PERPS:
                 # Check cooldown
                 if sym in self._recent_exits:
                     mins = (datetime.now(timezone.utc) - self._recent_exits[sym]).total_seconds() / 60
