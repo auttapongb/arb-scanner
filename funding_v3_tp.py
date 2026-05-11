@@ -20,10 +20,12 @@ POSITION_SIZE = 25.0
 
 MIN_FUNDING_RATE_PCT = 0.20
 EXIT_FUNDING_RATE_PCT = 0.01
-TAKE_PROFIT_PCT = 1.5           # 1.5% profit → exit
-MIN_HOLD_HOURS = 4              # Can exit faster since we re-enter
-MAX_HOLD_HOURS = 120
-RE_ENTRY_COOLDOWN_MINUTES = 30  # Short cooldown — re-enter if rate still good
+STOP_LOSS_PRICE_PCT = 3.0         # Hard SL — max -$0.75 on $25
+TAKE_PROFIT_PCT = 1.5             # First TP — lock profit + move SL to breakeven
+TAKE_PROFIT_TARGET_PCT = 3.0      # Second TP — bank full profit and close
+MIN_HOLD_HOURS = 4
+MAX_HOLD_HOURS = 24
+RE_ENTRY_COOLDOWN_MINUTES = 30
 LIMIT_FEE_RATE = 0.0002
 FEE_RATE = 0.001
 TRADE_LOG = os.path.join(BASE_DIR, "funding_trades_tp.json")
@@ -252,8 +254,7 @@ class FundingBotTP:
                 ed = now
             hours = (now - ed).total_seconds() / 3600
             reason = None
-            re_enter = False
-            tp_collected = 0
+            trailing_updated = False
 
             if hours >= MAX_HOLD_HOURS:
                 reason = f"max-age {hours:.1f}h"
@@ -263,16 +264,58 @@ class FundingBotTP:
                 cur_pr = float(t.get("lastPrice", 0) or 0)
                 price_chg = ((cur_pr - entry_pr) / entry_pr) * 100 if entry_pr > 0 else 0
 
-                # Exit on funding drop (standard)
+                # 1. Funding drop exit
                 if cur_fr < EXIT_FUNDING_RATE_PCT or cur_fr < 0:
                     if hours >= MIN_HOLD_HOURS:
                         reason = f"funding drop {cur_fr:.4f}%"
                     else:
                         print(f"  HOLD {sym}: funding dropped ({cur_fr:.4f}%) but only {hours:.1f}h old")
-                # Take-profit at 1.5% — bank profit
-                elif price_chg <= -TAKE_PROFIT_PCT:
-                    reason = f"tp {price_chg:.2f}%"
-                    re_enter = True if cur_fr >= MIN_FUNDING_RATE_PCT and hours >= MIN_HOLD_HOURS else False
+                # 2. Hard stop loss — price moved 3% against short
+                elif price_chg >= STOP_LOSS_PRICE_PCT:
+                    reason = f"sl +{price_chg:.2f}%"
+                # 3. Take-profit — two targets
+                elif price_chg < 0:
+                    profit_pct = -price_chg
+                    best_profit = pos.get("best_profit", 0)
+                    if profit_pct > best_profit:
+                        pos["best_profit"] = profit_pct
+                        best_profit = profit_pct
+
+                    # TP1 at 1.5%: move SL to breakeven, don't close yet
+                    if best_profit >= TAKE_PROFIT_PCT and not pos.get("tp1_hit", False):
+                        pos["tp1_hit"] = True
+                        print(f"  TP1 HIT {sym}: profit {best_profit:.2f}% → moving SL to breakeven")
+                        if LIVE_MODE:
+                            sl_result = bybit_post("/v5/position/trading-stop", body={
+                                "category": "linear", "symbol": sym,
+                                "stopLoss": str(entry_pr), "tpslMode": "Full", "positionIdx": 0,
+                            })
+                            if sl_result.get("retCode") == 0:
+                                print(f"  SL→BE {sym}: moved to breakeven ${entry_pr:.6f}")
+                            else:
+                                print(f"  SL→BE FAIL {sym}: {sl_result.get('retMsg','?')}")
+                        # Set TP2 target at 3% profit
+                        tp2_target = round(entry_pr * (1 - TAKE_PROFIT_TARGET_PCT / 100), 6)
+                        pos["tp2_target"] = tp2_target
+                        if LIVE_MODE:
+                            tp_result = bybit_post("/v5/position/trading-stop", body={
+                                "category": "linear", "symbol": sym,
+                                "takeProfit": str(tp2_target), "tpslMode": "Full", "positionIdx": 0,
+                            })
+                            if tp_result.get("retCode") == 0:
+                                print(f"  TP2 SET {sym}: target at ${tp2_target:.6f} (3% profit)")
+                            else:
+                                print(f"  TP2 FAIL {sym}: {tp_result.get('retMsg','?')}")
+
+                    # TP2 at 3%: close and bank profit
+                    if pos.get("tp2_target", 0) > 0 and cur_pr <= pos["tp2_target"]:
+                        reason = f"tp2 {profit_pct:.2f}%"
+                    # Also check if current price is on TP1 target (initial TP from entry)
+                    elif not pos.get("tp1_hit", False) and profit_pct >= TAKE_PROFIT_PCT and cur_pr <= (entry_pr * (1 - TAKE_PROFIT_PCT / 100)):
+                        reason = f"tp1 {profit_pct:.2f}%"
+
+                if not trailing_updated and not reason:
+                    print(f"  HOLD {sym}: price {price_chg:+.2f}% from entry, funding {cur_fr:.4f}%")
 
             if reason:
                 fc = pos.get("total_collected", 0)
@@ -301,15 +344,10 @@ class FundingBotTP:
 
                 self.trades.append({"type":"EXIT","symbol":sym,"ts":datetime.now(timezone.utc).isoformat(),
                     "entry_price":entry_pr,"exit_price":cur_pr_val,"funding_collected":round(fc,2),
-                    "price_pnl":round(price_pnl,2),"pnl_usdt":round(net,2),"reason":reason,
-                    "re_entry": re_enter})
+                    "price_pnl":round(price_pnl,2),"pnl_usdt":round(net,2),"reason":reason})
                 
-                # If re-enter, keep the symbol out of cooldown and mark for re-entry
-                if re_enter:
-                    print(f"  RE-ENTER {sym}: tp hit but rate still {cur_fr:.4f}% — will re-enter")
-                    # Don't add to _recent_exits — allow immediate re-entry
-                else:
-                    self._recent_exits[sym] = now
+                # Don't add to cooldown on TP exit — allows re-entry on next cycle if rate still good
+                self._recent_exits[sym] = now
                     
                 del self.active[sym]
                 closed += 1
@@ -351,6 +389,26 @@ class FundingBotTP:
                     print(f"  FAILED {sym}: {order.get('retMsg','?')}")
                     continue
                 print(f"  ORDER {sym}: short {qty} @ market | ID={order['result']['orderId']}")
+                # Set exchange-native SL at 3% immediately
+                sl_price = round(pr * (1 + STOP_LOSS_PRICE_PCT / 100), 6)
+                sl_result = bybit_post("/v5/position/trading-stop", body={
+                    "category": "linear", "symbol": sym,
+                    "stopLoss": str(sl_price), "tpslMode": "Full", "positionIdx": 0,
+                })
+                if sl_result.get("retCode") == 0:
+                    print(f"  SL SET {sym}: stop at {sl_price}")
+                else:
+                    print(f"  SL FAILED {sym}: {sl_result.get('retMsg','?')}")
+                # Set initial TP at 1.5% profit — first target locks in no-loss
+                tp_initial = round(pr * (1 - TAKE_PROFIT_PCT / 100), 6)
+                tp_result = bybit_post("/v5/position/trading-stop", body={
+                    "category": "linear", "symbol": sym,
+                    "takeProfit": str(tp_initial), "tpslMode": "Full", "positionIdx": 0,
+                })
+                if tp_result.get("retCode") == 0:
+                    print(f"  TP INIT {sym}: initial target at {tp_initial}")
+                else:
+                    print(f"  TP FAILED {sym}: {tp_result.get('retMsg','?')}")
             else:
                 print(f"  PAPER {sym}: short ${pr:.6f} rate={fr:.4f}% qty={qty} val=${val:.0f}")
 

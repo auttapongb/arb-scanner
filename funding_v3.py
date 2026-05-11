@@ -21,6 +21,7 @@ POSITION_SIZE = 25.0     # $25 each — small enough to ride through price noise
 
 MIN_FUNDING_RATE_PCT = 0.20   # Only enter rates >= 0.20%
 EXIT_FUNDING_RATE_PCT = 0.01  # Exit only when funding dies
+STOP_LOSS_PRICE_PCT = 3.0     # Hard SL — max -$0.75 on $25
 MIN_HOLD_HOURS = 6             # Wait for at least one settlement
 MAX_HOLD_HOURS = 120           # Hold up to 5 days — let funding compound
 RE_ENTRY_COOLDOWN_MINUTES = 120
@@ -293,6 +294,8 @@ class FundingBot:
                         reason = f"funding drop {cur_fr:.4f}%"
                     else:
                         print(f"  HOLD {sym}: funding dropped ({cur_fr:.4f}%) but only {hours:.1f}h old")
+                elif price_chg >= STOP_LOSS_PRICE_PCT:
+                    reason = f"sl +{price_chg:.2f}%"
 
             if reason:
                 fc = pos.get("total_collected", 0)
@@ -363,6 +366,16 @@ class FundingBot:
                     print(f"  FAILED {sym}: {order.get('retMsg','?')}")
                     continue
                 print(f"  ORDER {sym}: short {qty} @ market | ID={order['result']['orderId']}")
+                # Set exchange-native SL at 3% immediately
+                sl_price = round(pr * (1 + STOP_LOSS_PRICE_PCT / 100), 6)
+                sl_result = bybit_post("/v5/position/trading-stop", body={
+                    "category": "linear", "symbol": sym,
+                    "stopLoss": str(sl_price), "tpslMode": "Full", "positionIdx": 0,
+                })
+                if sl_result.get("retCode") == 0:
+                    print(f"  SL SET {sym}: stop at {sl_price}")
+                else:
+                    print(f"  SL FAILED {sym}: {sl_result.get('retMsg','?')}")
             else:
                 print(f"  PAPER {sym}: short ${pr:.6f} rate={fr:.4f}% qty={qty} val=${val:.0f}")
 
