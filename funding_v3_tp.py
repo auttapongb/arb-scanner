@@ -305,8 +305,8 @@ class FundingBotTP:
                         # Flash crash: current price is far below best profit (skipped past)
                         if profit_pct >= TAKE_PROFIT_PCT - 0.3:  # within 0.3% of best
                             pos["tp1_hit"] = True
-                            # Move SL to breakeven
-                            print(f"  TP1 HIT {sym}: profit {best_profit:.2f}% → banking profit")
+                            # Move SL to breakeven, DO NOT close — let trailing TP ride
+                            print(f"  TP1 HIT {sym}: profit {best_profit:.2f}% → SL moved to breakeven, activating trailing")
                             if LIVE_MODE:
                                 sl_result = bybit_post("/v5/position/trading-stop", body={
                                     "category": "linear", "symbol": sym,
@@ -316,7 +316,7 @@ class FundingBotTP:
                                     print(f"  SL→BE {sym}: moved to breakeven ${entry_pr:.6f}")
                                 else:
                                     print(f"  SL→BE FAIL {sym}: {sl_result.get('retMsg','?')}")
-                                # Set initial trailing TP
+                                # Set initial trailing TP at 1% above current price
                                 tp_init = round(cur_pr * (1 + TRAILING_TP_LOCK_PCT / 100), 6)
                                 init_tp = bybit_post("/v5/position/trading-stop", body={
                                     "category": "linear", "symbol": sym,
@@ -324,10 +324,11 @@ class FundingBotTP:
                                 })
                                 if init_tp.get("retCode") == 0:
                                     pos["trailing_tp_target"] = tp_init
-                                    print(f"  TRAIL INIT {sym}: trailing TP at ${tp_init:.6f}")
+                                    print(f"  TRAIL INIT {sym}: trailing TP at ${tp_init:.6f} (locks {1.5-TRAILING_TP_LOCK_PCT:.1f}% profit)")
                                 else:
                                     print(f"  TRAIL INIT FAIL {sym}: {init_tp.get('retMsg','?')}")
-                            reason = f"tp1 {profit_pct:.2f}%"
+                            # DO NOT set reason — position stays open for trailing
+                            trailing_updated = True
 
                     # Flash crash detection: best_profit significantly > current profit
                     # This means price crashed past our targets quickly
