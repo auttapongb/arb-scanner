@@ -317,6 +317,7 @@ class FundingBot:
                             print(f"  CLOSE ORDER {sym}: buy {qty} @ market | ID={close['result']['orderId']}")
                         else:
                             print(f"  FAILED close {sym}: {close.get('retMsg','?')}")
+                            continue  # Skip marking as exited — position still on exchange
 
                 self.trades.append({"type":"EXIT","symbol":sym,"ts":datetime.now(timezone.utc).isoformat(),
                     "entry_price":entry_pr,"exit_price":cur_pr_val,"funding_collected":round(fc,2),
