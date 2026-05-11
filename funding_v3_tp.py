@@ -21,8 +21,8 @@ POSITION_SIZE = 25.0
 MIN_FUNDING_RATE_PCT = 0.20
 EXIT_FUNDING_RATE_PCT = 0.01
 STOP_LOSS_PRICE_PCT = 3.0         # Hard SL — max -$0.75 on $25
-TAKE_PROFIT_PCT = 1.5             # First TP — lock profit + move SL to breakeven
-TAKE_PROFIT_TARGET_PCT = 3.0      # Second TP — bank full profit and close
+TAKE_PROFIT_PCT = 1.5             # TP1 — if price slowly hits 1.5%, bank profit
+TRAILING_TP_LOCK_PCT = 1.0        # Trailing: lock 1% below best price (catches flash crashes)
 MIN_HOLD_HOURS = 4
 MAX_HOLD_HOURS = 24
 RE_ENTRY_COOLDOWN_MINUTES = 30
@@ -273,7 +273,7 @@ class FundingBotTP:
                 # 2. Hard stop loss — price moved 3% against short
                 elif price_chg >= STOP_LOSS_PRICE_PCT:
                     reason = f"sl +{price_chg:.2f}%"
-                # 3. Take-profit — two targets
+                # 3. Hybrid: Fixed TP1 (1.5%) + Trailing TP
                 elif price_chg < 0:
                     profit_pct = -price_chg
                     best_profit = pos.get("best_profit", 0)
@@ -281,38 +281,85 @@ class FundingBotTP:
                         pos["best_profit"] = profit_pct
                         best_profit = profit_pct
 
-                    # TP1 at 1.5%: move SL to breakeven, don't close yet
+                    # Track trailing TP on every new best price
+                    # For shorts: as price drops, ratchet TP down (keep it 1% above current price)
+                    if LIVE_MODE:
+                        cur_tp_target = pos.get("trailing_tp_target", 0)
+                        new_tp_target = round(cur_pr * (1 + TRAILING_TP_LOCK_PCT / 100), 6) if pos.get("tp1_hit", False) else 0
+                        
+                        if new_tp_target > 0 and (new_tp_target < cur_tp_target or cur_tp_target == 0) and pos.get("tp1_hit", False):
+                            pos["trailing_tp_target"] = new_tp_target
+                            tp_result = bybit_post("/v5/position/trading-stop", body={
+                                "category": "linear", "symbol": sym,
+                                "takeProfit": str(new_tp_target), "tpslMode": "Full", "positionIdx": 0,
+                            })
+                            if tp_result.get("retCode") == 0:
+                                print(f"  TRAIL TP {sym}: best={best_profit:.2f}% → TP moved to ${new_tp_target:.6f}")
+                            else:
+                                print(f"  TRAIL TP FAIL {sym}: {tp_result.get('retMsg','?')}")
+
+                    # TP1: if we hit 1.5% profit cleanly (price slowly moved there)
                     if best_profit >= TAKE_PROFIT_PCT and not pos.get("tp1_hit", False):
+                        # Check if this is a smooth hit vs a flash crash
+                        # Smooth hit: current price is near the best profit level
+                        # Flash crash: current price is far below best profit (skipped past)
+                        if profit_pct >= TAKE_PROFIT_PCT - 0.3:  # within 0.3% of best
+                            pos["tp1_hit"] = True
+                            # Move SL to breakeven
+                            print(f"  TP1 HIT {sym}: profit {best_profit:.2f}% → banking profit")
+                            if LIVE_MODE:
+                                sl_result = bybit_post("/v5/position/trading-stop", body={
+                                    "category": "linear", "symbol": sym,
+                                    "stopLoss": str(entry_pr), "tpslMode": "Full", "positionIdx": 0,
+                                })
+                                if sl_result.get("retCode") == 0:
+                                    print(f"  SL→BE {sym}: moved to breakeven ${entry_pr:.6f}")
+                                else:
+                                    print(f"  SL→BE FAIL {sym}: {sl_result.get('retMsg','?')}")
+                                # Set initial trailing TP
+                                tp_init = round(cur_pr * (1 + TRAILING_TP_LOCK_PCT / 100), 6)
+                                init_tp = bybit_post("/v5/position/trading-stop", body={
+                                    "category": "linear", "symbol": sym,
+                                    "takeProfit": str(tp_init), "tpslMode": "Full", "positionIdx": 0,
+                                })
+                                if init_tp.get("retCode") == 0:
+                                    pos["trailing_tp_target"] = tp_init
+                                    print(f"  TRAIL INIT {sym}: trailing TP at ${tp_init:.6f}")
+                                else:
+                                    print(f"  TRAIL INIT FAIL {sym}: {init_tp.get('retMsg','?')}")
+                            reason = f"tp1 {profit_pct:.2f}%"
+
+                    # Flash crash detection: best_profit significantly > current profit
+                    # This means price crashed past our targets quickly
+                    if not pos.get("tp1_hit", False) and best_profit >= TAKE_PROFIT_PCT + 0.5:
+                        # Flash crash — activate trailing immediately without TP1
                         pos["tp1_hit"] = True
-                        print(f"  TP1 HIT {sym}: profit {best_profit:.2f}% → moving SL to breakeven")
+                        print(f"  FLASH {sym}: price crashed {best_profit:.2f}% → activating trailing TP")
                         if LIVE_MODE:
+                            # Move SL to breakeven
                             sl_result = bybit_post("/v5/position/trading-stop", body={
                                 "category": "linear", "symbol": sym,
                                 "stopLoss": str(entry_pr), "tpslMode": "Full", "positionIdx": 0,
                             })
                             if sl_result.get("retCode") == 0:
-                                print(f"  SL→BE {sym}: moved to breakeven ${entry_pr:.6f}")
-                            else:
-                                print(f"  SL→BE FAIL {sym}: {sl_result.get('retMsg','?')}")
-                        # Set TP2 target at 3% profit
-                        tp2_target = round(entry_pr * (1 - TAKE_PROFIT_TARGET_PCT / 100), 6)
-                        pos["tp2_target"] = tp2_target
-                        if LIVE_MODE:
-                            tp_result = bybit_post("/v5/position/trading-stop", body={
+                                print(f"  SL→BE {sym}: moved to breakeven")
+                            # Set trailing TP: best_price * (1 + lock_pct)
+                            # For shorts: best_price is lowest. If price bounces back above best_price + 1%, TP fires.
+                            best_price = entry_pr * (1 - best_profit / 100)
+                            tp_init = round(best_price * (1 + TRAILING_TP_LOCK_PCT / 100), 6)
+                            init_tp = bybit_post("/v5/position/trading-stop", body={
                                 "category": "linear", "symbol": sym,
-                                "takeProfit": str(tp2_target), "tpslMode": "Full", "positionIdx": 0,
+                                "takeProfit": str(tp_init), "tpslMode": "Full", "positionIdx": 0,
                             })
-                            if tp_result.get("retCode") == 0:
-                                print(f"  TP2 SET {sym}: target at ${tp2_target:.6f} (3% profit)")
+                            if init_tp.get("retCode") == 0:
+                                pos["trailing_tp_target"] = tp_init
+                                print(f"  FLASH TP {sym}: trailing at ${tp_init:.6f} (locks {best_profit - TRAILING_TP_LOCK_PCT:.1f}% profit)")
                             else:
-                                print(f"  TP2 FAIL {sym}: {tp_result.get('retMsg','?')}")
+                                print(f"  FLASH TP FAIL {sym}: {init_tp.get('retMsg','?')}")
 
-                    # TP2 at 3%: close and bank profit
-                    if pos.get("tp2_target", 0) > 0 and cur_pr <= pos["tp2_target"]:
-                        reason = f"tp2 {profit_pct:.2f}%"
-                    # Also check if current price is on TP1 target (initial TP from entry)
-                    elif not pos.get("tp1_hit", False) and profit_pct >= TAKE_PROFIT_PCT and cur_pr <= (entry_pr * (1 - TAKE_PROFIT_PCT / 100)):
-                        reason = f"tp1 {profit_pct:.2f}%"
+                    # Trailing TP fire check: if TP target set and price bounced back to it
+                    if pos.get("trailing_tp_target", 0) > 0 and cur_pr >= pos["trailing_tp_target"]:
+                        reason = f"trailing-tp {profit_pct:.2f}%"
 
                 if not trailing_updated and not reason:
                     print(f"  HOLD {sym}: price {price_chg:+.2f}% from entry, funding {cur_fr:.4f}%")
