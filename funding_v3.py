@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Funding Collector — consolidated (replaces v2 + v3).
 Short perps with highest funding rates, collects 8h settlement payments.
-Auto-exits on funding drop, stop-loss, or max-age.
+Auto-exits on funding drop, stop-loss, take-profit, trailing-stop, or max-age.
 """
 import os, sys, json, time
 from datetime import datetime, timezone, timedelta
@@ -408,6 +408,16 @@ class FundingBot:
                     print(f"  SL SET {sym}: stop at {sl_price}")
                 else:
                     print(f"  SL FAILED {sym}: {sl_result.get('retMsg','?')}")
+                # Set take-profit on exchange immediately
+                tp_price = round(pr * (1 - TAKE_PROFIT_PRICE_PCT / 100), 6)
+                tp_result = bybit_post("/v5/position/trading-stop", body={
+                    "category": "linear", "symbol": sym,
+                    "takeProfit": str(tp_price), "tpslMode": "Full", "positionIdx": 0,
+                })
+                if tp_result.get("retCode") == 0:
+                    print(f"  TP SET {sym}: take-profit at {tp_price}")
+                else:
+                    print(f"  TP FAILED {sym}: {tp_result.get('retMsg','?')}")
             else:
                 print(f"  PAPER {sym}: short ${pr:.6f} rate={fr:.4f}% qty={qty} val=${val:.0f}")
 
