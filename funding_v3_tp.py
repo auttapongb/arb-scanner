@@ -106,6 +106,20 @@ class FundingBotTP:
                         del self.active[sym]
                 if removed:
                     print(f"  SERVER SYNC: removed stale {removed}")
+                # Ensure existing positions have TP set (from prior bot runs)
+                for sym, sp in server_positions.items():
+                    if LIVE_MODE and (not sp.get("takeProfit") or sp["takeProfit"] == ""):
+                        entry = float(sp["avgPrice"])
+                        if entry > 0:
+                            tp_init = round(entry * (1 - TAKE_PROFIT_PCT / 100), 6)
+                            tp_r = bybit_post("/v5/position/trading-stop", body={
+                                "category": "linear", "symbol": sym,
+                                "takeProfit": str(tp_init), "tpslMode": "Full", "positionIdx": 0,
+                            })
+                            if tp_r.get("retCode") == 0:
+                                print(f"  TP INIT {sym}: set initial TP at {tp_init}")
+                            else:
+                                print(f"  TP INIT FAIL {sym}: {tp_r.get('retMsg','?')}")
                 for i in range(len(self.trades) - 1, -1, -1):
                     t = self.trades[i]
                     if t.get("type") == "ENTRY" and t.get("symbol") not in self.active and t.get("symbol") not in server_positions:
