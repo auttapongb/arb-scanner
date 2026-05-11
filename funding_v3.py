@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Funding Collector — consolidated (replaces v2 + v3).
 Short perps with highest funding rates, collects 8h settlement payments.
-Auto-exits on funding drop, stop-loss, take-profit, trailing-stop, or max-age.
+Auto-exits on funding drop or max-age only — no price exits.
 """
 import os, sys, json, time
 from datetime import datetime, timezone, timedelta
@@ -15,18 +15,14 @@ BYBIT_BASE_URL = "https://api.bybit.com"
 LIVE_MODE = False  # Set True for real orders
 
 # --- Strategy config ---
-CAPITAL = 150.0          # Total capital (adjustable, $100-200 works)
-MAX_POSITIONS = 2        # Reduced from 3 — cap exposure at $100 of $137 wallet
-POSITION_SIZE = CAPITAL / MAX_POSITIONS  # ~$68.5 per position (fewer positions, bigger size)
+CAPITAL = 150.0          # Total capital
+MAX_POSITIONS = 3        # Small positions, more diversification
+POSITION_SIZE = 25.0     # $25 each — small enough to ride through price noise
 
-MIN_FUNDING_RATE_PCT = 0.20   # Only enter rates >= 0.20% — filters out 90% of false signals
-EXIT_FUNDING_RATE_PCT = 0.01
-STOP_LOSS_PRICE_PCT = 5.0    # Exit if price moves 5% against us (short = price rising 5%)
-TAKE_PROFIT_PRICE_PCT = 3.0  # Exit if price moves 3% in our favor — bank profit before reversal
-TRAILING_ACTIVATE_PCT = 3.0  # Start trailing after 3% profit (price moved in our favor)
-TRAILING_LOCK_PCT = 2.0      # Lock in 2% of profit when trailing
-MIN_HOLD_HOURS = 6             # Wait for at least one settlement window
-MAX_HOLD_HOURS = 24
+MIN_FUNDING_RATE_PCT = 0.20   # Only enter rates >= 0.20%
+EXIT_FUNDING_RATE_PCT = 0.01  # Exit only when funding dies
+MIN_HOLD_HOURS = 6             # Wait for at least one settlement
+MAX_HOLD_HOURS = 120           # Hold up to 5 days — let funding compound
 RE_ENTRY_COOLDOWN_MINUTES = 120
 LIMIT_FEE_RATE = 0.0002
 FEE_RATE = 0.001
@@ -297,38 +293,6 @@ class FundingBot:
                         reason = f"funding drop {cur_fr:.4f}%"
                     else:
                         print(f"  HOLD {sym}: funding dropped ({cur_fr:.4f}%) but only {hours:.1f}h old")
-                elif price_chg >= STOP_LOSS_PRICE_PCT:
-                    reason = f"stop +{price_chg:.2f}%"
-                elif price_chg <= -TAKE_PROFIT_PRICE_PCT:
-                    reason = f"tp {price_chg:.2f}%"
-
-                # --- TRAILING STOP LOSS ---
-                # For shorts: price_chg positive = price going up (bad). Negative = price going down (good = profit).
-                # When profit > TRAILING_ACTIVATE_PCT, we lock in some profit by moving SL up.
-                if not reason and price_chg < 0:
-                    profit_pct = -price_chg  # positive number = how much we're up
-                    if profit_pct >= TRAILING_ACTIVATE_PCT:
-                        # New SL = lock in (profit - TRAILING_LOCK_PCT) of the profit
-                        # For shorts: SL is above entry. We move it DOWN (closer to entry) as profit increases.
-                        # Actually for shorts: price drops = profit. Entry=100, price=95 (+5% profit).
-                        # We want SL at 98 (2% above current, locking 3%).
-                        new_sl_price = round(cur_pr * (1 + TRAILING_LOCK_PCT / 100), 6)
-                        old_sl_price = float(pos.get("trailing_sl", 0) or 0)
-                        # Only update if new SL is tighter (lower for shorts = closer to entry price)
-                        if new_sl_price < old_sl_price or old_sl_price == 0:
-                            if LIVE_MODE:
-                                sl_result = bybit_post("/v5/position/trading-stop", body={
-                                    "category": "linear", "symbol": sym,
-                                    "stopLoss": str(new_sl_price), "tpslMode": "Full", "positionIdx": 0,
-                                })
-                                if sl_result.get("retCode") == 0:
-                                    pos["trailing_sl"] = new_sl_price
-                                    print(f"  TRAIL {sym}: profit {profit_pct:.2f}% → SL moved to {new_sl_price}")
-                                else:
-                                    print(f"  TRAIL FAIL {sym}: {sl_result.get('retMsg','?')}")
-                            else:
-                                pos["trailing_sl"] = new_sl_price
-                                print(f"  TRAIL PAPER {sym}: profit {profit_pct:.2f}% → SL would move to {new_sl_price}")
 
             if reason:
                 fc = pos.get("total_collected", 0)
@@ -398,26 +362,6 @@ class FundingBot:
                     print(f"  FAILED {sym}: {order.get('retMsg','?')}")
                     continue
                 print(f"  ORDER {sym}: short {qty} @ market | ID={order['result']['orderId']}")
-                # Set stop loss on exchange immediately after entry
-                sl_price = round(pr * (1 + STOP_LOSS_PRICE_PCT / 100), 6)
-                sl_result = bybit_post("/v5/position/trading-stop", body={
-                    "category": "linear", "symbol": sym,
-                    "stopLoss": str(sl_price), "tpslMode": "Full", "positionIdx": 0,
-                })
-                if sl_result.get("retCode") == 0:
-                    print(f"  SL SET {sym}: stop at {sl_price}")
-                else:
-                    print(f"  SL FAILED {sym}: {sl_result.get('retMsg','?')}")
-                # Set take-profit on exchange immediately
-                tp_price = round(pr * (1 - TAKE_PROFIT_PRICE_PCT / 100), 6)
-                tp_result = bybit_post("/v5/position/trading-stop", body={
-                    "category": "linear", "symbol": sym,
-                    "takeProfit": str(tp_price), "tpslMode": "Full", "positionIdx": 0,
-                })
-                if tp_result.get("retCode") == 0:
-                    print(f"  TP SET {sym}: take-profit at {tp_price}")
-                else:
-                    print(f"  TP FAILED {sym}: {tp_result.get('retMsg','?')}")
             else:
                 print(f"  PAPER {sym}: short ${pr:.6f} rate={fr:.4f}% qty={qty} val=${val:.0f}")
 
