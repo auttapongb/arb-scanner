@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Consolidated status — wallet, grid, paper bots.
+Consolidated status — UNIFIED wallet + FUND wallet + grid + perp.
 Queries Bybit API directly. Self-sources env vars.
 
 Use: python3 status_all.py
@@ -31,8 +31,22 @@ BYBIT_BASE_URL = "https://api.bybit.com"
 api = SafeBybitAPI(BYBIT_BASE_URL, BYBIT_API_KEY, BYBIT_PRIV_KEY_PATH)
 
 
-def get_wallet():
-    """UNIFIED wallet only (UTA account has no separate FUND/SPOT wallets)."""
+def get_funding_wallet():
+    """FUND wallet via /v5/asset/transfer/query-account-coins-balance."""
+    r = api.get("/v5/asset/transfer/query-account-coins-balance",
+                {"accountType": "FUND", "coin": "USDT"})
+    if r.get("retCode") != 0:
+        return {"error": r.get("retMsg", "?")}
+    balances = {}
+    for b in r.get("result", {}).get("balance", []):
+        bal = float(b.get("walletBalance", 0))
+        if bal > 0:
+            balances[b["coin"]] = bal
+    return balances
+
+
+def get_unified_wallet():
+    """UNIFIED trading wallet."""
     r = api.get("/v5/account/wallet-balance", {"accountType": "UNIFIED", "coin": "USDT"})
     if r.get("retCode") != 0:
         return {"error": r.get("retMsg", "?")}
@@ -49,7 +63,7 @@ def get_wallet():
 
 
 def get_grid(grid_id="619152395372384846"):
-    """Grid bot detail. Returns the fund-within-unified breakdown."""
+    """Grid bot detail (sub-accounted within UNIFIED)."""
     r = api.post("/v5/grid/query-grid-detail", body={"grid_id": grid_id})
     if r.get("retCode") != 0:
         return {"error": r.get("retMsg", "?"), "code": r.get("retCode")}
@@ -75,7 +89,7 @@ def get_grid(grid_id="619152395372384846"):
 
 
 def get_perp_positions():
-    """Check for any open perp positions (should be 0)."""
+    """Open perp positions (should be 0)."""
     r = api.get("/v5/position/list", {"category": "linear", "settleCoin": "USDT"})
     if r.get("retCode") != 0:
         return {"error": r.get("retMsg", "?")}
@@ -101,46 +115,65 @@ def print_status():
     print(f"  STATUS @ {now.strftime('%Y-%m-%d %H:%M UTC')}")
     print(f"{'='*55}")
 
-    # Wallet
-    w = get_wallet()
-    if w.get("error"):
-        print(f"  ✗ WALLET ERROR: {w['error']}")
+    # ── Funding Wallet ──
+    fw = get_funding_wallet()
+    funding_total = 0.0
+    if fw.get("error"):
+        print(f"  FUND:     ✗ {fw['error']}")
     else:
-        available_txt = f" (${w['available']:.2f} available)"
-        print(f"  WALLET:   ${w['equity']:.2f}{available_txt}")
-        print(f"  Locked:   ${w['locked']:.2f} | uPnL: ${w['upnl']:.4f}")
+        for coin, bal in fw.items():
+            print(f"  FUND:     ${bal:.2f} {coin}")
+            funding_total += bal
 
-    # Grid
+    # ── Unified Wallet ──
+    uw = get_unified_wallet()
+    if uw.get("error"):
+        print(f"  UNIFIED:  ✗ {uw['error']}")
+        unified_total = 0.0
+    else:
+        avail = uw.get("available", 0)
+        print(f"  UNIFIED:  ${uw['equity']:.2f} (${avail:.2f} available)")
+        print(f"            uPnL=${uw['upnl']:.4f} | IM=${uw['position_im']:.2f}")
+        unified_total = uw['equity']
+
+    # ── Grid Bot ──
     g = get_grid()
+    grid_eq = 0.0
     if g.get("error"):
-        print(f"  ✗ GRID: {g.get('error', '?')} (code={g.get('code','?')})")
+        print(f"  GRID:     ✗ {g.get('error', '?')}")
     else:
-        status_icon = "✓" if g["status"] == "RUNNING" else "⚠"
-        market_icon = "🟢" if g.get("market_status") == "ONLINE" else "🔴"
-        print(f"  GRID:     {status_icon} {g['status']} {market_icon}")
-        print(f"           ${g['min_price']} – ${g['max_price']} | {g['cells']} lines | {g['arbitrage_count']} trades")
-        print(f"           Invested: ${g['investment']:.0f} | Equity: ${g['equity']:.2f}")
-        print(f"           PnL: ${g['total_profit']:.4f} (cycle: ${g['current_profit']:.4f})")
+        grid_eq = g["equity"]
+        icon = "✓" if g["status"] == "RUNNING" else "⚠"
+        market = "🟢" if g.get("market_status") == "ONLINE" else "🔴"
+        print(f"  GRID:     {icon} {g['status']} {market}")
+        print(f"            ${g['min_price']} – ${g['max_price']} | {g['cells']} lines | {g['arbitrage_count']} trades")
+        print(f"            Invested: ${g['investment']:.0f} | Equity: ${grid_eq:.2f}")
+        print(f"            PnL: ${g['total_profit']:.4f} (cycle: ${g['current_profit']:.4f})")
 
-    # Perp positions
+    # ── Perp Positions ──
     pp = get_perp_positions()
     if isinstance(pp, dict) and pp.get("error"):
-        print(f"  ✗ PERP CHECK ERROR: {pp['error']}")
-    elif len(pp) > 0:
-        print(f"  ⚠ PERP POSITIONS OPEN: {len(pp)}")
+        print(f"  PERP:     ✗ {pp['error']}")
+    elif pp:
+        print(f"  PERP:     ⚠ {len(pp)} OPEN ———")
         for p in pp:
-            print(f"      {p['symbol']}: {p['side']} {p['size']} @ {p['entry']} uPnL=${p['upnl']:.2f}")
+            print(f"            {p['symbol']}: {p['side']} {p['size']} @ {p['entry']} uPnL=${p['upnl']:.2f}")
     else:
         print(f"  PERP:     ✅ 0 open")
 
+    # ── Summary ──
+    print(f"{'='*55}")
+    reserve = unified_total - grid_eq
+    grand_total = funding_total + unified_total
+    print(f"  FUND:      ${funding_total:.2f}")
+    print(f"  UNIFIED:   ${unified_total:.2f}  (Grid ${grid_eq:.2f} + Reserve ${reserve:.2f})")
+    print(f"  ─────────────────────────────")
+    print(f"  GRAND TOTAL: ${grand_total:.2f}")
     print(f"{'='*55}")
 
-    # Summary
-    grid_eq = g.get("equity", 0) if not g.get("error") else 0
-    wallet_eq = w.get("equity", 0) if not w.get("error") else 0
-    reserve = wallet_eq - grid_eq
-    print(f"  SUMMARY: ${wallet_eq:.2f} total = Grid ${grid_eq:.2f} + Reserve ${reserve:.2f}")
-    return {"wallet": w, "grid": g, "perp_positions": pp}
+    return {"fund_wallet": fw, "unified_wallet": uw, "grid": g, "perp_positions": pp,
+            "totals": {"fund": round(funding_total,2), "unified": round(unified_total,2),
+                       "grid": round(grid_eq,2), "grand": round(grand_total,2)}}
 
 
 if __name__ == "__main__":
