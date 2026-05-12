@@ -168,7 +168,9 @@ def print_status():
     print(f"  FUND:      ${funding_total:.2f}")
     print(f"  UNIFIED:   ${unified_total:.2f}  (Grid ${grid_eq:.2f} + Reserve ${reserve:.2f})")
     print(f"  ─────────────────────────────")
-    print(f"  GRAND TOTAL: ${grand_total:.2f}")
+    print(f"  REAL TOTAL:  ${grand_total:.2f}")
+    print(f"  (Bybit UI shows ${grand_total + grid_eq:.2f} because grid is")
+    print(f"   double-counted — once in UNIFIED + once as separate line)")
     print(f"{'='*55}")
 
     return {"fund_wallet": fw, "unified_wallet": uw, "grid": g, "perp_positions": pp,
