@@ -4,6 +4,15 @@ Short perps with highest funding rates, collects 8h settlement payments.
 Auto-exits on funding drop or max-age only — no price exits.
 """
 import os, sys, json, time
+if not os.environ.get('BYBIT_API_KEY'):
+    env_path = '/root/.bybit_env'
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and '=' in line and not line.startswith('#'):
+                    k, v = line.split('=', 1)
+                    os.environ[k.strip()] = v.strip()
 from datetime import datetime, timezone, timedelta
 from safety import SafeBybitAPI, make_safe_get, make_safe_post, atomic_write, atomic_read
 
