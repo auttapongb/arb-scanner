@@ -32,16 +32,23 @@ api = SafeBybitAPI(BYBIT_BASE_URL, BYBIT_API_KEY, BYBIT_PRIV_KEY_PATH)
 
 
 def get_funding_wallet():
-    """FUND wallet via /v5/asset/transfer/query-account-coins-balance."""
+    """FUND wallet - ALL coins for total equity."""
     r = api.get("/v5/asset/transfer/query-account-coins-balance",
-                {"accountType": "FUND", "coin": "USDT"})
+                {"accountType": "FUND"})
     if r.get("retCode") != 0:
         return {"error": r.get("retMsg", "?")}
     balances = {}
     for b in r.get("result", {}).get("balance", []):
         bal = float(b.get("walletBalance", 0))
         if bal > 0:
-            balances[b["coin"]] = bal
+            coin = b["coin"]
+            if coin == "USDT":
+                balances[coin] = bal
+            else:
+                # Get USD value for non-USDT coins
+                ticker = api.get("/v5/market/tickers", {"category": "spot", "symbol": f"{coin}USDT"})
+                price = float(ticker["result"]["list"][0]["lastPrice"])
+                balances[coin] = bal * price  # store as USD value
     return balances
 
 
@@ -128,9 +135,9 @@ def print_status():
     if fw.get("error"):
         print(f"  FUND:     ✗ {fw['error']}")
     else:
-        for coin, bal in fw.items():
-            print(f"  FUND:     ${bal:.2f} {coin}")
-            funding_total += bal
+        for coin, bal_usd in fw.items():
+            print(f"  FUND:     ${bal_usd:.2f} {coin}" if coin == "USDT" else f"  FUND:     ${bal_usd:.2f} ({coin})")
+            funding_total += bal_usd
 
     # ── Unified Wallet ──
     uw = get_unified_wallet()
