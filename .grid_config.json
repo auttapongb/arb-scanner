@@ -1,0 +1,10 @@
+{
+  "type": "spot_grid",
+  "symbol": "BTCUSDT",
+  "min_price": "76000",
+  "max_price": "86000",
+  "cell_number": 10,
+  "investment": 100,
+  "created_at": "2026-05-12T08:02:59.240315+00:00",
+  "grid_id": null
+}
