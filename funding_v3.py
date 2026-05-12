@@ -19,7 +19,7 @@ CAPITAL = 150.0          # Total capital
 MAX_POSITIONS = 3        # Small positions, more diversification
 POSITION_SIZE = 25.0     # $25 each — small enough to ride through price noise
 
-MIN_FUNDING_RATE_PCT = 0.20   # Only enter rates >= 0.20%
+MIN_FUNDING_RATE_PCT = 0.30   # Only enter rates >= 0.30% (was 0.20 — fewer, stronger entries)
 EXIT_FUNDING_RATE_PCT = 0.01  # Exit only when funding dies
 STOP_LOSS_PRICE_PCT = 3.0     # Hard SL — max -$0.75 on $25
 MIN_HOLD_HOURS = 6             # Wait for at least one settlement

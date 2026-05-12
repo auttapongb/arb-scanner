@@ -18,14 +18,14 @@ LIVE_MODE = False
 MAX_POSITIONS = 3
 POSITION_SIZE = 25.0
 
-MIN_FUNDING_RATE_PCT = 0.20
+MIN_FUNDING_RATE_PCT = 0.30
 EXIT_FUNDING_RATE_PCT = 0.01
 STOP_LOSS_PRICE_PCT = 3.0         # Hard SL — max -$0.75 on $25
 TAKE_PROFIT_PCT = 1.5             # TP1 — if price slowly hits 1.5%, bank profit
 TRAILING_TP_LOCK_PCT = 1.0        # Trailing: lock 1% below best price (catches flash crashes)
 MIN_HOLD_HOURS = 4
 MAX_HOLD_HOURS = 24
-RE_ENTRY_COOLDOWN_MINUTES = 30
+RE_ENTRY_COOLDOWN_MINUTES = 60
 LIMIT_FEE_RATE = 0.0002
 FEE_RATE = 0.001
 TRADE_LOG = os.path.join(BASE_DIR, "funding_trades_tp.json")
