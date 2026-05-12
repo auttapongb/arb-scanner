@@ -1,0 +1,20 @@
+{
+  "last_dashboard_run": "2026-05-12T13:01:46.630392+00:00",
+  "total_equity": 126.53,
+  "go_nogo": "GO",
+  "open_count": 0,
+  "top_spreads": [
+    [
+      "OLUSDT",
+      0.652
+    ],
+    [
+      "BELUSDT",
+      0.597
+    ],
+    [
+      "KSMUSDT",
+      0.478
+    ]
+  ]
+}

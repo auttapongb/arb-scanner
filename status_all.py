@@ -62,30 +62,37 @@ def get_unified_wallet():
     }
 
 
-def get_grid(grid_id="619152395372384846"):
-    """Grid bot detail (sub-accounted within UNIFIED)."""
-    r = api.post("/v5/grid/query-grid-detail", body={"grid_id": grid_id})
-    if r.get("retCode") != 0:
-        return {"error": r.get("retMsg", "?"), "code": r.get("retCode")}
-    d = r["result"].get("detail", {})
-    if not d:
-        return {"error": "no detail"}
-    return {
-        "grid_id": grid_id,
-        "status": d.get("status", "?"),
-        "market_status": d.get("spot_symbol_status", "?"),
-        "investment": float(d.get("total_investment", 0)),
-        "equity": float(d.get("equity", 0)),
-        "grid_profit": float(d.get("grid_profit", 0)),
-        "total_profit": float(d.get("total_profit", 0)),
-        "arbitrage_count": int(d.get("arbitrage_num", 0)),
-        "min_price": d.get("min_price", "?"),
-        "max_price": d.get("max_price", "?"),
-        "cells": int(d.get("cell_number", 0)),
-        "run_time_h": int(d.get("run_time", 0)),
-        "current_profit": float(d.get("current_profit", 0)),
-        "current_per": d.get("current_per", "0"),
-    }
+def get_grid(grid_id=None):
+    """List all active spot grids from the exchange (returns list)."""
+    # Try query-active-grid-list first (GET)
+    r = api.get("/v5/grid/query-active-grid-list", {"category": "spot", "limit": 20})
+    if r.get("retCode") == 0:
+        grids = r.get("result", {}).get("list", [])
+        return grids  # list of grid detail dicts
+    
+    # Fallback: if a specific grid_id is provided, try the detail endpoint
+    if grid_id:
+        r = api.post("/v5/grid/query-grid-detail", body={"gridId": grid_id})
+        if r.get("retCode") == 0 and r.get("result", {}).get("detail"):
+            d = r["result"]["detail"]
+            return [{
+                "grid_id": grid_id,
+                "status": d.get("status", "?"),
+                "market_status": d.get("spot_symbol_status", "?"),
+                "investment": float(d.get("total_investment", 0)),
+                "equity": float(d.get("equity", 0)),
+                "grid_profit": float(d.get("grid_profit", 0)),
+                "total_profit": float(d.get("total_profit", 0)),
+                "arbitrage_count": int(d.get("arbitrage_num", 0)),
+                "min_price": d.get("min_price", "?"),
+                "max_price": d.get("max_price", "?"),
+                "cells": int(d.get("cell_number", 0)),
+                "run_time_h": int(d.get("run_time", 0)),
+                "current_profit": float(d.get("current_profit", 0)),
+                "current_per": d.get("current_per", "0"),
+            }]
+    
+    return []  # no active grids
 
 
 def get_perp_positions():
@@ -136,19 +143,20 @@ def print_status():
         print(f"            uPnL=${uw['upnl']:.4f} | IM=${uw['position_im']:.2f}")
         unified_total = uw['equity']
 
-    # ── Grid Bot ──
-    g = get_grid()
+    # ── Grid Bots ──
+    all_grids = get_grid()
     grid_eq = 0.0
-    if g.get("error"):
-        print(f"  GRID:     ✗ {g.get('error', '?')}")
+    if all_grids:
+        for g in all_grids:
+            ge = float(g.get("equity", 0))
+            grid_eq += ge
+            icon = "✓" if g.get("status") == "RUNNING" else "⚠"
+            print(f"  GRID:     {icon} {g.get('status','?')} {g.get('symbol','?')}")
+            print(f"            ${g.get('min_price','?')} – ${g.get('max_price','?')} | {g.get('cell_number',0)} lines | {g.get('arbitrage_num',0)} trades")
+            print(f"            Invested: ${float(g.get('total_investment',0)):.0f} | Equity: ${ge:.2f}")
+            print(f"            PnL: ${float(g.get('total_profit',0)):.4f}")
     else:
-        grid_eq = g["equity"]
-        icon = "✓" if g["status"] == "RUNNING" else "⚠"
-        market = "🟢" if g.get("market_status") == "ONLINE" else "🔴"
-        print(f"  GRID:     {icon} {g['status']} {market}")
-        print(f"            ${g['min_price']} – ${g['max_price']} | {g['cells']} lines | {g['arbitrage_count']} trades")
-        print(f"            Invested: ${g['investment']:.0f} | Equity: ${grid_eq:.2f}")
-        print(f"            PnL: ${g['total_profit']:.4f} (cycle: ${g['current_profit']:.4f})")
+        print(f"  GRID:     none")
 
     # ── Perp Positions ──
     pp = get_perp_positions()
@@ -166,14 +174,15 @@ def print_status():
     reserve = unified_total - grid_eq
     grand_total = funding_total + unified_total
     print(f"  FUND:      ${funding_total:.2f}")
-    print(f"  UNIFIED:   ${unified_total:.2f}  (Grid ${grid_eq:.2f} + Reserve ${reserve:.2f})")
+    print(f"  UNIFIED:   ${unified_total:.2f}")
+    if grid_eq > 0:
+        print(f"    Grid:    ${grid_eq:.2f}")
+        print(f"    Reserve: ${reserve:.2f}")
     print(f"  ─────────────────────────────")
-    print(f"  REAL TOTAL:  ${grand_total:.2f}")
-    print(f"  (Bybit UI shows ${grand_total + grid_eq:.2f} because grid is")
-    print(f"   double-counted — once in UNIFIED + once as separate line)")
+    print(f"  TOTAL:     ${grand_total:.2f}")
     print(f"{'='*55}")
 
-    return {"fund_wallet": fw, "unified_wallet": uw, "grid": g, "perp_positions": pp,
+    return {"fund_wallet": fw, "unified_wallet": uw, "grids": all_grids, "perp_positions": pp,
             "totals": {"fund": round(funding_total,2), "unified": round(unified_total,2),
                        "grid": round(grid_eq,2), "grand": round(grand_total,2)}}
 

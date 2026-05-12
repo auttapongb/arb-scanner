@@ -1,0 +1,62 @@
+[
+  {
+    "type": "FUNDING",
+    "symbol": "1000BTTUSDT",
+    "ts": "2026-05-11T16:00:00+00:00",
+    "rate": 0.3424,
+    "gross": 0.0855,
+    "fee": 0.0017,
+    "net_payment": 0.0838
+  },
+  {
+    "type": "EXIT",
+    "symbol": "1000000MOGUSDT",
+    "ts": "2026-05-11T22:29:25.495215+00:00",
+    "entry_price": 0.16862,
+    "exit_price": 0.17228,
+    "funding_collected": 0,
+    "price_pnl": -0.54,
+    "pnl_usdt": -0.57,
+    "reason": "funding drop -0.1938%"
+  },
+  {
+    "type": "FUNDING",
+    "symbol": "1000BTTUSDT",
+    "ts": "2026-05-12T00:00:00+00:00",
+    "rate": 0.3424,
+    "gross": 0.0855,
+    "fee": 0.0017,
+    "net_payment": 0.0838
+  },
+  {
+    "type": "FUNDING",
+    "symbol": "FOLKSUSDT",
+    "ts": "2026-05-12T00:00:00+00:00",
+    "rate": 0.2775,
+    "gross": 0.0694,
+    "fee": 0.0017,
+    "net_payment": 0.0677
+  },
+  {
+    "type": "EXIT",
+    "symbol": "1000BTTUSDT",
+    "ts": "2026-05-12T00:03:41.244702+00:00",
+    "entry_price": 0.0003379,
+    "exit_price": 0.000337,
+    "funding_collected": 0.17,
+    "price_pnl": 0.07,
+    "pnl_usdt": 0.2,
+    "reason": "funding drop -0.3189%"
+  },
+  {
+    "type": "EXIT",
+    "symbol": "FOLKSUSDT",
+    "ts": "2026-05-12T00:03:41.469419+00:00",
+    "entry_price": 1.4441,
+    "exit_price": 1.444,
+    "funding_collected": 0.07,
+    "price_pnl": 0.0,
+    "pnl_usdt": 0.04,
+    "reason": "funding drop 0.0050%"
+  }
+]

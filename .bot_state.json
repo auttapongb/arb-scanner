@@ -1,0 +1,13 @@
+{
+  "active_positions": {},
+  "session": {
+    "wallet_start": null,
+    "daily_pnl": 0.0,
+    "consecutive_losses": 0,
+    "last_loss_time": null,
+    "pause_until": null,
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0
+  }
+}
