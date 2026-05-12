@@ -46,53 +46,53 @@ def get_funding_wallet():
 
 
 def get_unified_wallet():
-    """UNIFIED trading wallet."""
-    r = api.get("/v5/account/wallet-balance", {"accountType": "UNIFIED", "coin": "USDT"})
+    """UNIFIED trading wallet - queries ALL coins for total equity."""
+    r = api.get("/v5/account/wallet-balance", {"accountType": "UNIFIED"})
     if r.get("retCode") != 0:
         return {"error": r.get("retMsg", "?")}
-    c = r["result"]["list"][0]["coin"][0]
+    lst = r["result"]["list"][0]
+    total_equity = float(lst.get("totalEquity", 0))
+    # Get USDT-specific data for margin info
+    usdt_coin = {"walletBalance": 0, "equity": 0, "totalPositionIM": 0, "totalOrderIM": 0, "locked": 0, "unrealisedPnl": 0}
+    for c in lst.get("coin", []):
+        if c.get("coin") == "USDT":
+            usdt_coin = c
+            break
     return {
-        "wallet_balance": float(c["walletBalance"]),
-        "equity": float(c["equity"]),
-        "position_im": float(c.get("totalPositionIM", 0)),
-        "order_im": float(c.get("totalOrderIM", 0)),
-        "locked": float(c.get("locked", 0)),
-        "upnl": float(c.get("unrealisedPnl", 0)),
-        "available": float(c["equity"]) - float(c.get("totalPositionIM", 0)) - float(c.get("totalOrderIM", 0)),
+        "wallet_balance": float(usdt_coin.get("walletBalance", 0)),
+        "equity": total_equity,
+        "position_im": float(usdt_coin.get("totalPositionIM", 0)),
+        "order_im": float(usdt_coin.get("totalOrderIM", 0)),
+        "locked": float(usdt_coin.get("locked", 0)),
+        "upnl": float(usdt_coin.get("unrealisedPnl", 0)),
+        "available": total_equity,
     }
 
 
-def get_grid(grid_id=None):
-    """List all active spot grids from the exchange (returns list)."""
-    # Try query-active-grid-list first (GET)
-    r = api.get("/v5/grid/query-active-grid-list", {"category": "spot", "limit": 20})
-    if r.get("retCode") == 0:
-        grids = r.get("result", {}).get("list", [])
-        return grids  # list of grid detail dicts
-    
-    # Fallback: if a specific grid_id is provided, try the detail endpoint
-    if grid_id:
-        r = api.post("/v5/grid/query-grid-detail", body={"gridId": grid_id})
-        if r.get("retCode") == 0 and r.get("result", {}).get("detail"):
-            d = r["result"]["detail"]
-            return [{
-                "grid_id": grid_id,
+def get_grids():
+    """List all active grids by querying known grid IDs."""
+    known_grids = [
+        "619152395372384846",  # BTC grid
+        "619197277327646447",  # SOL grid
+    ]
+    active = []
+    for gid in known_grids:
+        r = api.post("/v5/grid/query-grid-detail", body={"grid_id": gid})
+        d = r.get("result", {}).get("detail")
+        if d and d.get("status") in ("RUNNING",):
+            active.append({
+                "grid_id": gid,
+                "symbol": d.get("symbol", "?"),
                 "status": d.get("status", "?"),
-                "market_status": d.get("spot_symbol_status", "?"),
-                "investment": float(d.get("total_investment", 0)),
+                "total_investment": float(d.get("total_investment", 0)),
                 "equity": float(d.get("equity", 0)),
                 "grid_profit": float(d.get("grid_profit", 0)),
-                "total_profit": float(d.get("total_profit", 0)),
-                "arbitrage_count": int(d.get("arbitrage_num", 0)),
+                "arbitrage_num": int(d.get("arbitrage_num", 0)),
                 "min_price": d.get("min_price", "?"),
                 "max_price": d.get("max_price", "?"),
-                "cells": int(d.get("cell_number", 0)),
-                "run_time_h": int(d.get("run_time", 0)),
-                "current_profit": float(d.get("current_profit", 0)),
-                "current_per": d.get("current_per", "0"),
-            }]
-    
-    return []  # no active grids
+                "cell_number": int(d.get("cell_number", 0)),
+            })
+    return active
 
 
 def get_perp_positions():
@@ -144,19 +144,19 @@ def print_status():
         unified_total = uw['equity']
 
     # ── Grid Bots ──
-    all_grids = get_grid()
-    grid_eq = 0.0
+    all_grids = get_grids()
     if all_grids:
+        total_grid_eq = 0
         for g in all_grids:
             ge = float(g.get("equity", 0))
-            grid_eq += ge
+            total_grid_eq += ge
             icon = "✓" if g.get("status") == "RUNNING" else "⚠"
-            print(f"  GRID:     {icon} {g.get('status','?')} {g.get('symbol','?')}")
-            print(f"            ${g.get('min_price','?')} – ${g.get('max_price','?')} | {g.get('cell_number',0)} lines | {g.get('arbitrage_num',0)} trades")
+            print(f"  GRID:     {icon} {g['status']} {g['symbol']}")
+            print(f"            ${g['min_price']} – ${g['max_price']} | {g['cell_number']} lines | {g['arbitrage_num']} trades")
             print(f"            Invested: ${float(g.get('total_investment',0)):.0f} | Equity: ${ge:.2f}")
-            print(f"            PnL: ${float(g.get('total_profit',0)):.4f}")
+        grid_eq = total_grid_eq
     else:
-        print(f"  GRID:     none")
+        grid_eq = 0.0
 
     # ── Perp Positions ──
     pp = get_perp_positions()
@@ -170,16 +170,13 @@ def print_status():
         print(f"  PERP:     ✅ 0 open")
 
     # ── Summary ──
+    grand_total = funding_total + unified_total + grid_eq
     print(f"{'='*55}")
-    reserve = unified_total - grid_eq
-    grand_total = funding_total + unified_total
-    print(f"  FUND:      ${funding_total:.2f}")
-    print(f"  UNIFIED:   ${unified_total:.2f}")
-    if grid_eq > 0:
-        print(f"    Grid:    ${grid_eq:.2f}")
-        print(f"    Reserve: ${reserve:.2f}")
+    print(f"  FUNDING:     ${funding_total:.2f}")
+    print(f"  UNIFIED:     ${unified_total:.2f}")
+    print(f"  TRADING BOT: ${grid_eq:.2f}   ({len(all_grids)} active grids)")
     print(f"  ─────────────────────────────")
-    print(f"  TOTAL:     ${grand_total:.2f}")
+    print(f"  GRAND TOTAL: ${grand_total:.2f}")
     print(f"{'='*55}")
 
     return {"fund_wallet": fw, "unified_wallet": uw, "grids": all_grids, "perp_positions": pp,
